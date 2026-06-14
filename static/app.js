@@ -25,7 +25,6 @@
   Chart.defaults.font.family = "Inter, sans-serif";
   Chart.defaults.borderColor = "#1a2230";
   const ACCENT = "#2dd4a7";
-  const ACCENT2 = "#4f8cff";
   const WARN = "#f7c948";
 
   let roiChart, ownChart, settleChart, mcChart;
@@ -136,7 +135,6 @@
       data: {
         labels,
         datasets: [
-          lineDataset("Spot ROI (×)", stages.map((s) => s.spot_roi + 1), ACCENT2),
           lineDataset("Redeem ROI (×)", stages.map((s) => s.redeem_roi + 1), ACCENT),
           lineDataset("Settlement-win ROI (×)", stages.map((s) => s.settle_roi + 1), WARN),
         ],
@@ -227,7 +225,6 @@
         `<td>${fmtNum(s.market_cap)}</td>` +
         `<td>${fmtNum(s.price)}</td>` +
         `<td>${fmtPct(s.ownership_pct)}</td>` +
-        roiCell(s.spot_roi) +
         roiCell(s.redeem_roi) +
         roiCell(s.settle_roi);
       tbody.appendChild(tr);

@@ -76,7 +76,6 @@ class StageRow:
     # --- aggregate across ALL outcomes the user holds ---
     agg_spot_value: float
     agg_redeem_value: float
-    spot_roi: float            # aggregate spot value / total spend - 1
     redeem_roi: float          # aggregate redeem value / total spend - 1
     # --- settlement (parimutuel) if the market resolves at this stage ---
     total_pot: float           # USDT pooled across all outcomes
@@ -148,7 +147,6 @@ def simulate(config: SimConfig) -> SimResult:
                 redeem_value=redeem_value,
                 agg_spot_value=agg_spot,
                 agg_redeem_value=agg_redeem,
-                spot_roi=agg_spot / total_spend - 1.0,
                 redeem_roi=agg_redeem / total_spend - 1.0,
                 total_pot=total_pot,
                 settle_payout=settle_payout,
