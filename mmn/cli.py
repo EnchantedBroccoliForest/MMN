@@ -29,8 +29,8 @@ DEFAULTS = {
     "coefficient": None,         # k; if set, overrides mcap_at_full
     "slope": 1e-13,              # m for the affine curve
     "base": 0.0,                 # b for the affine curve
-    "buy_fee": 0.0,              # e.g. 0.005 for 0.5%
-    "sell_fee": 0.0,
+    "buy_fee": 0.002,            # 0.2% per buy  (confirmed: 0.2% per side)
+    "sell_fee": 0.002,           # 0.2% per sell (confirmed: 0.2% per side)
     "quote": "USDT",
 }
 # ============================================================================
