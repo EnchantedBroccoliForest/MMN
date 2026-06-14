@@ -5,7 +5,7 @@ Base URL (alpha): https://rest.ft.42.space/api/v1
 Endpoints used (see https://docs.42.space/for-developers/rest-api-alpha):
   GET /markets?status=live|resolved|all&limit=N      -> list markets
   GET /markets/{address_or_slug}                     -> one market
-  GET /markets/{address_or_slug}/outcome-token-prices -> current outcome state
+  GET /market-data/prices?market={address_or_slug}   -> current outcome prices
 
 The shape of the alpha API is not 100% pinned in public docs, and this sandbox
 cannot reach the API to introspect it, so parsing is intentionally defensive:
@@ -212,9 +212,14 @@ class FtClient:
         return Market.from_dict(_unwrap_obj(payload))
 
     def get_outcome_prices(self, address_or_slug: str) -> List[Outcome]:
-        """Current outcome-token prices/state for a market."""
-        ref = urllib.parse.quote(str(address_or_slug), safe="")
-        payload = self._get(f"/markets/{ref}/outcome-token-prices")
+        """Current outcome-token prices/state for a market.
+
+        Per the REST docs ("Get current outcome token prices") this is the
+        ``/market-data/prices`` endpoint filtered by market, NOT a nested
+        ``/markets/{ref}/...`` route. The exact filter key isn't pinned in the
+        public docs from here; ``market`` is used and should be confirmed live.
+        """
+        payload = self._get("/market-data/prices", {"market": address_or_slug})
         items = _unwrap_list(payload)
         return [Outcome.from_dict(o, i) for i, o in enumerate(items)]
 

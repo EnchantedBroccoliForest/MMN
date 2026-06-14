@@ -209,7 +209,10 @@ def analyze(market: Market, plan: BuyerPlan, fee_model: FeeModel,
         own_final = (tokens_list[i] / final_supplies[i]) if final_supplies[i] > 0 else 0.0
         payout = own_final * final_pot
         own_now = (tokens_list[i] / post_supplies[i]) if post_supplies[i] > 0 else 0.0
-        breakeven_pot = (total_invested / own_now) if own_now > 0 else float("inf")
+        # Break-even pot uses the SAME ownership basis as the settlement payout
+        # (post-dilution when later capital is assumed), so the two line up in
+        # the report. With added_capital == 0, own_final == own_now.
+        breakeven_pot = (total_invested / own_final) if own_final > 0 else float("inf")
         # exit-now: redeem your tokens back down the curve, minus protocol fee + tax
         gross_redeem = curve.cost(start_supplies[i], post_supplies[i])
         redeem_val = gross_redeem * (1.0 - redeem_rate)
