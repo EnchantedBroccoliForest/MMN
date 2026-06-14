@@ -18,6 +18,8 @@ numbers are exact (cross-checked against numerical integration in the tests).
 
 from .curves import BondingCurve, PowerCurve, AffineCurve
 from .simulator import SimConfig, SimResult, StageRow, simulate
+from .montecarlo import McConfig, McResult, run_montecarlo
+from .chart import ownership_and_roi_svg, mc_histogram_svg
 
 __all__ = [
     "BondingCurve",
@@ -27,4 +29,9 @@ __all__ = [
     "SimResult",
     "StageRow",
     "simulate",
+    "McConfig",
+    "McResult",
+    "run_montecarlo",
+    "ownership_and_roi_svg",
+    "mc_histogram_svg",
 ]

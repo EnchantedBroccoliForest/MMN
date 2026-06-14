@@ -16,6 +16,8 @@ import sys
 
 from .curves import FT_ALPHA, FT_PRICE_SCALE, AffineCurve, PowerCurve
 from .simulator import DEFAULT_MULTIPLES, SimConfig, SimResult, simulate
+from .montecarlo import McConfig, McResult, run_montecarlo
+from .chart import mc_histogram_svg, ownership_and_roi_svg
 
 # ============================================================================
 #  42 PRODUCTION DEFAULTS (verified against MC_Sim/parimutuel_sim/market.py)
@@ -183,6 +185,54 @@ def _build_curve(args):
     return PowerCurve(coefficient=args.coefficient, exponent=args.exponent)
 
 
+def _parse_prior(spec, n):
+    """Winner prior: 'uniform' -> None; 'skewed' -> geometric; or a comma list."""
+    if spec is None or spec == "uniform":
+        return None
+    if spec == "skewed":
+        w = [0.6 ** i for i in range(n)]
+        return w
+    parts = [float(p) for p in spec.replace(",", " ").split()]
+    if len(parts) != n:
+        raise SystemExit(f"--winner-prior list has {len(parts)} values, need {n}")
+    return parts
+
+
+def render_mc(mc: McResult) -> str:
+    cfg = mc.config
+    q = cfg.quote = getattr(cfg, "quote", "USDT")
+    lines = []
+    a = lines.append
+    a("=" * 96)
+    a(f"MONTE CARLO  -  {cfg.n_trials:,} trials  (random house seeds, uneven capital, "
+      f"random winner)")
+    a(_hr())
+    a(f"  House seed/outcome  : Uniform({cfg.seed_min:g}, {cfg.seed_max:g}) USDT   "
+      f"(MC_Sim default range)")
+    a(f"  Added capital       : Lognormal, mean {fmt_money(cfg.mean_added_pool)} "
+      f"(sigma {cfg.pool_sigma:g})")
+    a(f"  Winner prior        : {'uniform' if cfg.prior is None else 'custom/skewed'}"
+      f"   |  capital concentration {cfg.concentration:g}")
+    a(f"  Avg total spend     : {fmt_money(mc.total_spend)}")
+    a("")
+    a("  SETTLEMENT RETURN  (payout / spend, multiple)")
+    a("  " + _hr(92))
+    a(f"    mean   : {mc.mean_settle:>7.2f}x        P(profit) : {mc.prob_profit*100:5.1f}%")
+    a(f"    median : {mc.median_settle:>7.2f}x        5th pct  : {mc.p05_settle:>6.2f}x")
+    a(f"    95th   : {mc.p95_settle:>7.2f}x")
+    a("")
+    a(f"  SELL-BACK NOW (redeem) RETURN : mean {mc.mean_redeem:.2f}x")
+    a("=" * 96)
+    return "\n".join(lines)
+
+
+def _mc_chart_path(chart_path: str) -> str:
+    if "." in chart_path:
+        stem, ext = chart_path.rsplit(".", 1)
+        return f"{stem}-montecarlo.{ext}"
+    return chart_path + "-montecarlo.svg"
+
+
 def _prompt(prompt_text, default, cast):
     raw = input(f"{prompt_text} [{default}]: ").strip()
     if raw == "":
@@ -220,6 +270,22 @@ def parse_args(argv):
     p.add_argument("--quote", default=DEFAULTS["quote"])
     p.add_argument("--multiples", type=str, default=None,
                    help="space/comma separated market-cap multiples, e.g. '1 2 10 100'")
+    p.add_argument("--chart", type=str, default=None,
+                   help="write an SVG chart (ownership + ROI vs growth) to this path")
+    p.add_argument("--monte-carlo", action="store_true",
+                   help="run the Monte Carlo (random seeds, uneven capital, random winner)")
+    p.add_argument("--mc-trials", type=int, default=20_000)
+    p.add_argument("--mc-mean-pool", type=float, default=None,
+                   help="expected total later capital across all outcomes "
+                        "(default: full-mcap x outcomes)")
+    p.add_argument("--pool-sigma", type=float, default=0.6)
+    p.add_argument("--concentration", type=float, default=8.0,
+                   help="Dirichlet sharpness for capital allocation (higher = closer to prior)")
+    p.add_argument("--seed-min", type=float, default=0.10)
+    p.add_argument("--seed-max", type=float, default=10.0)
+    p.add_argument("--winner-prior", type=str, default="uniform",
+                   help="'uniform', 'skewed', or a comma list of length=outcomes")
+    p.add_argument("--mc-seed", type=int, default=0)
     p.add_argument("-y", "--yes", action="store_true",
                    help="non-interactive: use flags/defaults without prompting")
     return p.parse_args(argv)
@@ -267,6 +333,38 @@ def main(argv=None) -> int:
     result = simulate(config)
     print()
     print(render(result))
+
+    if args.chart:
+        with open(args.chart, "w") as fh:
+            fh.write(ownership_and_roi_svg(result))
+        print(f"\nWrote chart: {args.chart}")
+
+    if args.monte_carlo:
+        mc_cfg = McConfig(
+            num_outcomes=args.outcomes,
+            early_pct=args.early_pct,
+            curve=curve,
+            total_supply=total_supply,
+            buy_fee=args.buy_fee,
+            sell_fee=args.sell_fee,
+            seed_min=args.seed_min,
+            seed_max=args.seed_max,
+            prior=_parse_prior(args.winner_prior, args.outcomes),
+            mean_added_pool=(args.mc_mean_pool
+                             if args.mc_mean_pool else args.full_mcap * args.outcomes),
+            pool_sigma=args.pool_sigma,
+            concentration=args.concentration,
+            n_trials=args.mc_trials,
+            seed=args.mc_seed,
+        )
+        mc = run_montecarlo(mc_cfg)
+        print()
+        print(render_mc(mc))
+        if args.chart:
+            hp = _mc_chart_path(args.chart)
+            with open(hp, "w") as fh:
+                fh.write(mc_histogram_svg(mc))
+            print(f"\nWrote chart: {hp}")
     return 0
 
 

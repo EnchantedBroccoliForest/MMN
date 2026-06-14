@@ -107,7 +107,29 @@ python -m mmn --outcomes 4 --early-pct 1 --yes
 python -m mmn --outcomes 3 --early-pct 0.5 \
     --full-mcap 250000 --house-seed 5 \
     --multiples "1 2 5 10 50 100 1000" --yes
+
+# Write SVG charts + run the Monte Carlo
+python -m mmn --outcomes 8 --early-pct 1 --monte-carlo --mc-trials 20000 \
+    --winner-prior skewed --chart examples/early_buyer.svg --yes
 ```
+
+## Charts & Monte Carlo
+
+- **`--chart PATH.svg`** writes a dependency-free SVG (renders on GitHub / any
+  browser): two panels — your **% ownership** and your **return multiple**
+  (sell-back and settlement) vs market-cap growth. See
+  [`examples/early_buyer.svg`](examples/early_buyer.svg).
+- **`--monte-carlo`** samples the realistic picture the deterministic table
+  can't: a random **house seed** per outcome (Uniform 0.10–10 USDT, MC_Sim's
+  range), **uneven later capital** (favourites attract more, via a Dirichlet
+  split around the winner prior), and a **random winner**. Because you hold the
+  same early slice of *every* outcome, your settlement payout is
+  `ownership_in_winner × total_pot` — a distribution, reported as mean / median /
+  5th / 95th percentile and P(profit). With `--chart` it also writes a histogram
+  ([`examples/early_buyer-montecarlo.svg`](examples/early_buyer-montecarlo.svg)).
+
+  Knobs: `--mc-trials`, `--mc-mean-pool`, `--pool-sigma`, `--concentration`,
+  `--seed-min/--seed-max`, `--winner-prior {uniform|skewed|comma-list}`, `--mc-seed`.
 
 ### Run the tests
 
@@ -140,11 +162,14 @@ ROI and ownership are **scale-free**, so they're exact regardless of `--full-mca
 mmn/
   curves.py      # PowerCurve / AffineCurve bonding-curve math (closed-form)
   simulator.py   # spend, growth stages, ownership, P&L, parimutuel settlement
+  montecarlo.py  # random seeds + uneven capital + random winner -> ROI distribution
+  chart.py       # dependency-free SVG charts (ownership/ROI + MC histogram)
   cli.py         # interactive + flag-driven front-end and report rendering
   __main__.py    # `python -m mmn`
 tests/
-  test_curves.py     # closed-form vs integration + EXACT match to MC_Sim formulas
-  test_simulator.py  # economic identities (ownership=M^-4/7, win=M^3/7, fees, scale-free)
+  test_curves.py      # closed-form vs integration + EXACT match to MC_Sim formulas
+  test_simulator.py   # economic identities (ownership=M^-4/7, win=M^3/7, fees, scale-free)
+  test_montecarlo.py  # MC invariants + SVG well-formedness
 ```
 
 ## Sources
