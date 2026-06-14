@@ -22,9 +22,22 @@ args = "Start application"
 name = "Start application"
 author = "agent"
 
+[workflows.workflow.metadata]
+outputType = "webview"
+
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "python -m mmn --outcomes 4 --early-pct 1 --yes"
+args = "python app.py"
+waitForPort = 5000
 
-[workflows.workflow.metadata]
-outputType = "console"
+[[ports]]
+localPort = 5000
+externalPort = 80
+
+[[ports]]
+localPort = 5001
+externalPort = 3001
+
+[deployment]
+deploymentTarget = "autoscale"
+run = ["gunicorn", "--bind=0.0.0.0:5000", "--reuse-port", "app:app"]
