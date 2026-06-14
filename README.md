@@ -36,6 +36,25 @@ Sourced from 42's docs and Event Rush coverage (links at the bottom):
   pooled and paid out **pro-rata to holders of the winning token**. Your payout
   on a win = `your share of the winning token × total USDT pot`.
 
+### Confirmed from 42's on-chain interfaces
+
+The mechanism above is corroborated by 42's contract interfaces (`IFTMarketV2`,
+`IFTCurve`):
+
+- **Collateral = USDT** (BEP-20, 18 decimals).
+- **One market holds every outcome as an ERC-6909 token id** (`tokenId` = outcome).
+- **Buy** = `mintCollateralToExactOt`, **Sell** = `redeemExactOtToCollateral`.
+- The curve is a **Hanson Market-Scoring-Rule AMM**: a cost function `C(supply)`
+  with marginal price `C'(supply)` (the docs/interface cite Robin Hanson's MSR /
+  LMSR). A **fee is skimmed to a treasury** on each trade.
+- **Settlement** is **parimutuel** (`claim()` / `simPayout`): winning-token
+  holders split the USDT pot pro-rata.
+
+What is **not** publicly available is the exact curve **constants** (liquidity
+parameter, fee bps, supply caps). The simulator therefore uses a configurable
+power-curve stand-in; the math machinery is exact, only the constants need to be
+the real ones.
+
 ### The model
 
 Per-outcome bonding curve, instantaneous price at circulating supply `s`:

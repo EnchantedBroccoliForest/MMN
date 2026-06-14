@@ -96,6 +96,22 @@ def render(result: SimResult) -> str:
     a(f"  Collateral                : {quote}")
     a("")
 
+    a("CONFIRMED FROM 42's CONTRACTS  (IFTMarketV2 / IFTCurve)")
+    a(_hr())
+    a("  - Collateral = USDT (BEP-20, 18 decimals)")
+    a("  - One market holds every outcome as an ERC-6909 token id")
+    a("  - Buy  = mintCollateralToExactOt   Sell = redeemExactOtToCollateral")
+    a("  - Curve = Hanson Market-Scoring-Rule AMM: cost C(supply), price = C'(supply)")
+    a("  - Trading fee skimmed to a treasury on every buy/sell")
+    a("  - Settlement = parimutuel claim(): winners split the USDT pot pro-rata")
+    a("")
+    a("ASSUMED  (no on-chain constants available - edit DEFAULTS in mmn/cli.py)")
+    a(_hr())
+    a("  - Exact curve shape & constants: using power curve p(s)=k*s^n as a stand-in")
+    a("  - Total supply per outcome, fee bps, and full-supply market cap")
+    a("  The MACHINERY is exact; swap in real constants for 42-accurate figures.")
+    a("")
+
     a("STEP 1-2  -  ENTRY COST")
     a(_hr())
     a(f"  Tokens bought per outcome : {fmt_num(result.tokens_per_outcome)}  "
