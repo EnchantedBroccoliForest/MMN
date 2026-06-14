@@ -1,0 +1,12 @@
+{
+  "address": "0x42aa00000000000000000000000000000000cd42",
+  "slug": "mci-vs-cry-result",
+  "title": "MCI vs CRY - match result",
+  "status": "live",
+  "collateral": "USDT",
+  "outcomes": [
+    {"tokenId": "1", "name": "MCI win", "price": 0.0402, "marketCap": 52000.0, "volume": 91000.0, "payout": 1.18, "mintedQuantity": 4050000.0},
+    {"tokenId": "2", "name": "Draw",    "price": 0.0251, "marketCap": 18500.0, "volume": 33000.0, "payout": 2.10, "mintedQuantity": 2010000.0},
+    {"tokenId": "3", "name": "CRY win", "price": 0.0121, "marketCap": 4200.0,  "volume": 12000.0, "payout": 4.60, "mintedQuantity": 820000.0}
+  ]
+}

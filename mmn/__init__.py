@@ -20,6 +20,10 @@ from .curves import BondingCurve, PowerCurve, AffineCurve
 from .simulator import SimConfig, SimResult, StageRow, simulate
 from .montecarlo import McConfig, McResult, run_montecarlo
 from .chart import ownership_and_roi_svg, mc_histogram_svg
+from .fees import FeeModel, DOCUMENTED_PROTOCOL_FEE
+from .ft_api import FtClient, FtApiError, Market, Outcome, market_from_json
+from .live_simulator import BuyerPlan, LiveResult, OutcomeAnalysis, analyze
+from .live_report import render_live, render_market_list
 
 __all__ = [
     "BondingCurve",
@@ -34,4 +38,17 @@ __all__ = [
     "run_montecarlo",
     "ownership_and_roi_svg",
     "mc_histogram_svg",
+    "FeeModel",
+    "DOCUMENTED_PROTOCOL_FEE",
+    "FtClient",
+    "FtApiError",
+    "Market",
+    "Outcome",
+    "market_from_json",
+    "BuyerPlan",
+    "LiveResult",
+    "OutcomeAnalysis",
+    "analyze",
+    "render_live",
+    "render_market_list",
 ]
