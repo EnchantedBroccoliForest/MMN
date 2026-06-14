@@ -85,6 +85,7 @@ def _is_ft_production(cfg) -> bool:
     """True iff the run uses 42's exact production curve and the 0.2% fees."""
     c = cfg.curve
     return (isinstance(c, PowerCurve)
+            and cfg.quote == "USDT"
             and math.isclose(c.k, 1.0 / FT_PRICE_SCALE, rel_tol=1e-9)
             and math.isclose(c.n, FT_ALPHA, rel_tol=1e-9)
             and math.isclose(cfg.buy_fee, 0.002, rel_tol=1e-9)
@@ -149,7 +150,7 @@ def render(result: SimResult) -> str:
         a("    DO depend on the $ scale here (they are scale-free only when seed = 0).")
     else:
         a("  - ROI and ownership are scale-free: they do NOT depend on the $ scale")
-        a("    (reference market cap / supply); only the USDT amounts scale with it.")
+        a(f"    (reference market cap / supply); only the {quote} amounts scale with it.")
     a("  - MC_Sim is mint-and-hold; redeem values assume 42's sell-back is available")
     a("")
 
@@ -162,12 +163,12 @@ def render(result: SimResult) -> str:
     a(f"  >> TOTAL SPEND            : {fmt_money(result.total_spend, quote)}")
     a(f"  Entry price / token       : {fmt_money(result.entry_price, quote)}")
     a(f"  Entry market cap/outcome  : {fmt_money(result.entry_market_cap, quote)}  "
-      f"(cumulative USDT staked)")
+      f"(cumulative {quote} staked)")
     a("")
 
     a("STEP 3  -  PROFITABILITY AS MARKET CAP GROWS  (per single outcome held)")
     a(_hr())
-    a("  market cap = cumulative USDT staked in that outcome")
+    a(f"  market cap = cumulative {quote} staked in that outcome")
     hdr = (f"  {'MCcap x':>7} | {'mkt cap':>14} | {'price':>12} | "
            f"{'your own %':>10} | {'spot value':>14} | {'redeem value':>14}")
     a(hdr)
@@ -178,7 +179,7 @@ def render(result: SimResult) -> str:
           f"{fmt_num(s.redeem_value):>14}")
     a("")
     a("  spot value  = units x current price (mark-to-market, ignores sell slippage)")
-    a("  redeem value= USDT you actually get selling those units back into the curve")
+    a(f"  redeem value= {quote} you actually get selling those units back into the curve")
     a("")
 
     a(f"STEP 3  -  AGGREGATE P&L  (all {cfg.num_outcomes} outcomes; spend "
@@ -195,7 +196,7 @@ def render(result: SimResult) -> str:
 
     a("STEP 3  -  SETTLEMENT (parimutuel) IF THE MARKET RESOLVES AT THIS STAGE")
     a(_hr())
-    a("  If a held outcome WINS, its holders split the whole USDT pot pro-rata.")
+    a(f"  If a held outcome WINS, its holders split the whole {quote} pot pro-rata.")
     a("  (Holdings in the other outcomes settle to zero.)")
     hdr3 = (f"  {'MCcap x':>7} | {'total pot':>16} | {'your win payout':>16} | "
             f"{'win ROI':>10}")
@@ -243,20 +244,20 @@ def _parse_prior(spec, n):
 
 def render_mc(mc: McResult) -> str:
     cfg = mc.config
-    q = cfg.quote = getattr(cfg, "quote", "USDT")
+    quote = cfg.quote
     lines = []
     a = lines.append
     a("=" * 96)
     a(f"MONTE CARLO  -  {cfg.n_trials:,} trials  (random house seeds, uneven capital, "
       f"random winner)")
     a(_hr())
-    a(f"  House seed/outcome  : Uniform({cfg.seed_min:g}, {cfg.seed_max:g}) USDT   "
+    a(f"  House seed/outcome  : Uniform({cfg.seed_min:g}, {cfg.seed_max:g}) {quote}   "
       f"(MC_Sim default range)")
-    a(f"  Added capital       : Lognormal, mean {fmt_money(cfg.mean_added_pool)} "
+    a(f"  Added capital       : Lognormal, mean {fmt_money(cfg.mean_added_pool, quote)} "
       f"(sigma {cfg.pool_sigma:g})")
     a(f"  Winner prior        : {'uniform' if cfg.prior is None else 'custom/skewed'}"
       f"   |  capital concentration {cfg.concentration:g}")
-    a(f"  Avg total spend     : {fmt_money(mc.total_spend)}")
+    a(f"  Avg total spend     : {fmt_money(mc.total_spend, quote)}")
     a("")
     a("  SETTLEMENT RETURN  (payout / spend, multiple)")
     a("  " + _hr(92))
@@ -399,6 +400,7 @@ def main(argv=None) -> int:
             concentration=args.concentration,
             n_trials=args.mc_trials,
             seed=args.mc_seed,
+            quote=args.quote,
         )
         mc = run_montecarlo(mc_cfg)
         print()

@@ -1,8 +1,9 @@
 """Report rendering: the 'confirmed' block and scale-free claims must match the
 actual parameters (regression for the Codex review feedback on PR #1)."""
 
-from mmn.cli import _is_ft_production, render
+from mmn.cli import _is_ft_production, render, render_mc
 from mmn.curves import AffineCurve, PowerCurve
+from mmn.montecarlo import McConfig, run_montecarlo
 from mmn.simulator import SimConfig, simulate
 
 
@@ -38,6 +39,20 @@ def test_house_seed_qualifies_scale_free_claim():
     assert "DO depend on the $ scale" in out
     # the unconditional "scale-free" reassurance must not appear for seeded runs
     assert "ownership are scale-free: they do NOT depend" not in out
+
+
+def test_non_usdt_quote_is_not_confirmed():
+    out = _render(quote="DAI")
+    assert "CUSTOM SCENARIO" in out
+    assert "CONFIRMED FROM 42" not in out
+
+
+def test_mc_render_honors_quote():
+    r = run_montecarlo(McConfig(num_outcomes=2, early_pct=1.0, quote="DAI",
+                                n_trials=500, seed=1, mean_added_pool=50_000.0))
+    out = render_mc(r)
+    assert "DAI" in out
+    assert "USDT" not in out
 
 
 def test_is_ft_production_predicate():

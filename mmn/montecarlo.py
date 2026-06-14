@@ -54,6 +54,7 @@ class McConfig:
     concentration: float = 8.0                # Dirichlet sharpness (higher -> closer to prior)
     n_trials: int = 20_000
     seed: int = 0
+    quote: str = "USDT"
 
     def __post_init__(self) -> None:
         if self.num_outcomes < 1:

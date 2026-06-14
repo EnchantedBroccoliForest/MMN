@@ -11,13 +11,14 @@ are denominated in the collateral currency (USDT for Event Rush).
 
 Key quantities, all derived from the instantaneous price p(s):
 
-    price(s)       p(s)                              -- price of the next token
-    reserve(s)     integral of p from 0..s           -- collateral locked in the curve
-    market_cap(s)  p(s) * s                           -- spot price * circulating supply
-    cost(a, b)     reserve(b) - reserve(a)            -- USDT to mint supply a -> b
+    price(s)            p(s)                         -- price of the next token
+    reserve(s)          integral of p from 0..s      -- 42's market cap = collateral staked
+    spot_market_cap(s)  p(s) * s                      -- generic spot value, NOT 42 mcap
+    cost(a, b)          reserve(b) - reserve(a)       -- USDT to mint supply a -> b
 
 The reserve is exactly the USDT that can be paid back out when redeeming, which
-is why selling the whole supply back into the curve is always solvent.
+is why selling the whole supply back into the curve is always solvent. 42's
+"market cap" is this reserve (cumulative staked), not the spot price * supply.
 """
 
 from __future__ import annotations
@@ -47,8 +48,13 @@ class BondingCurve(ABC):
         """Collateral locked in the curve after minting ``s`` tokens from zero."""
 
     @abstractmethod
-    def supply_for_market_cap(self, mcap: float) -> float:
-        """Circulating supply at which the spot market cap equals ``mcap``."""
+    def supply_for_spot_market_cap(self, mcap: float) -> float:
+        """Circulating supply at which the SPOT market cap (price*supply) equals ``mcap``.
+
+        NOTE: 42's "market cap" is the cumulative collateral staked = ``reserve``
+        (use ``supply_for_reserve``). This spot quantity is a different, generic
+        bonding-curve measure; it is ``(n+1)`` x the 42 market cap for a power curve.
+        """
 
     @abstractmethod
     def supply_for_reserve(self, reserve: float) -> float:
@@ -56,8 +62,13 @@ class BondingCurve(ABC):
 
     # ---- shared, derived from the abstract methods above -------------------
 
-    def market_cap(self, s: float) -> float:
-        """Spot market cap = price(s) * s."""
+    def spot_market_cap(self, s: float) -> float:
+        """Spot market cap = price(s) * s.
+
+        This is NOT 42's market cap. 42 defines market cap as cumulative
+        collateral staked, which is ``reserve(s)`` (= spot/(n+1) for a power
+        curve). Kept for completeness / generic bonding-curve analysis.
+        """
         return self.price(s) * s
 
     def cost(self, a: float, b: float) -> float:
@@ -80,8 +91,8 @@ class PowerCurve(BondingCurve):
     n = 0 -> flat price, n = 1 -> linear, n = 2 -> quadratic, ...
 
     Closed forms (n != -1):
-        reserve(s)      = k / (n + 1) * s ** (n + 1)
-        market_cap(s)   = k * s ** (n + 1) = (n + 1) * reserve(s)
+        reserve(s)         = k / (n + 1) * s ** (n + 1)   <- 42's market cap
+        spot_market_cap(s) = k * s ** (n + 1) = (n + 1) * reserve(s)
     """
 
     def __init__(self, coefficient: float, exponent: float = 1.0):
@@ -128,8 +139,8 @@ class PowerCurve(BondingCurve):
             return 0.0
         return self.k / (self.n + 1) * s ** (self.n + 1)
 
-    def supply_for_market_cap(self, mcap: float) -> float:
-        # mcap = k * s ** (n + 1)
+    def supply_for_spot_market_cap(self, mcap: float) -> float:
+        # spot mcap = k * s ** (n + 1)
         return (mcap / self.k) ** (1.0 / (self.n + 1))
 
     def supply_for_reserve(self, reserve: float) -> float:
@@ -144,8 +155,8 @@ class AffineCurve(BondingCurve):
     """p(s) = m * s + b  (slope m >= 0, base price b >= 0).
 
     Closed forms:
-        reserve(s)    = m/2 * s ** 2 + b * s
-        market_cap(s) = m * s ** 2 + b * s
+        reserve(s)         = m/2 * s ** 2 + b * s   <- 42's market cap
+        spot_market_cap(s) = m * s ** 2 + b * s
     """
 
     def __init__(self, slope: float, base: float = 0.0):
@@ -166,8 +177,8 @@ class AffineCurve(BondingCurve):
             return 0.0
         return self.m / 2.0 * s * s + self.b * s
 
-    def supply_for_market_cap(self, mcap: float) -> float:
-        # m s^2 + b s - mcap = 0
+    def supply_for_spot_market_cap(self, mcap: float) -> float:
+        # spot mcap: m s^2 + b s - mcap = 0
         if self.m == 0:
             return mcap / self.b
         disc = self.b * self.b + 4 * self.m * mcap

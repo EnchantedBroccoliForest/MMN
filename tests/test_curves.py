@@ -28,17 +28,17 @@ def test_power_reserve_matches_integral(n):
 
 
 @pytest.mark.parametrize("n", [0.0, 0.75, 1.0, 2.0])
-def test_power_market_cap_identity(n):
+def test_power_spot_market_cap_identity(n):
     curve = PowerCurve(coefficient=1e-9, exponent=n)
     s = 12_345.0
-    assert curve.market_cap(s) == pytest.approx((n + 1) * curve.reserve(s))
+    assert curve.spot_market_cap(s) == pytest.approx((n + 1) * curve.reserve(s))
 
 
 @pytest.mark.parametrize("n", [0.5, 0.75, 1.0, 2.0])
 def test_power_inverses(n):
     curve = PowerCurve(coefficient=7e-10, exponent=n)
     s = 5_000_000.0
-    assert curve.supply_for_market_cap(curve.market_cap(s)) == pytest.approx(s)
+    assert curve.supply_for_spot_market_cap(curve.spot_market_cap(s)) == pytest.approx(s)
     assert curve.supply_for_reserve(curve.reserve(s)) == pytest.approx(s)
 
 
@@ -111,7 +111,7 @@ def test_affine_reserve_matches_integral(m, b):
 def test_affine_inverses(m, b):
     curve = AffineCurve(slope=m, base=b)
     s = 3_000_000.0
-    assert curve.supply_for_market_cap(curve.market_cap(s)) == pytest.approx(s)
+    assert curve.supply_for_spot_market_cap(curve.spot_market_cap(s)) == pytest.approx(s)
     assert curve.supply_for_reserve(curve.reserve(s)) == pytest.approx(s)
 
 

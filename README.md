@@ -83,7 +83,7 @@ spend = `N ×` that.
 
 **Step 3 (growth).** Stages are **market-cap multiples** of your entry market cap.
 At multiple `M` the supply rises to `s = q · M^(4/7)`, giving these **scale-free**
-results (true for any `--full-mcap`):
+results (true for any `--full-mcap`, when there is no house seed):
 
 - **% ownership** = `q / s = M^(−4/7)` — your stake dilutes as others stake.
 - **redeem value** (sell back into the curve) = `M(s) − M(s−q)`, times `1 − 0.2%`.
@@ -152,7 +152,10 @@ The only thing you set is the **dollar scale**:
 - `--full-mcap` — a reference market cap per outcome (defaults to 100,000 USDT)
 - `--house-seed` — optional initial market cap the house seeds each outcome with
 
-ROI and ownership are **scale-free**, so they're exact regardless of `--full-mcap`.
+With **no house seed**, ROI and ownership are **scale-free** — exact regardless of
+`--full-mcap`. With `--house-seed` set, the seed is an absolute USDT amount while
+your position scales with `--full-mcap`/`--total-supply`, so the scale **does**
+affect dilution and ROI in that case.
 
 ---
 
