@@ -15,23 +15,26 @@ def _render(**kw):
     return render(simulate(SimConfig(**base)))
 
 
-def test_ft_default_shows_confirmed_and_scale_free():
+def test_ft_default_shows_verified_curve_and_scale_free():
     out = _render()
-    assert "CONFIRMED FROM 42" in out
-    assert "CUSTOM SCENARIO" not in out
+    assert "VERIFIED CURVE" in out
+    assert "CUSTOM CURVE" not in out
     assert "scale-free" in out
 
 
-def test_custom_curve_shows_custom_not_confirmed():
+def test_custom_curve_shows_custom_not_verified():
     out = _render(curve=AffineCurve(slope=1e-13))
-    assert "CUSTOM SCENARIO" in out
-    assert "CONFIRMED FROM 42" not in out
+    assert "CUSTOM CURVE" in out
+    assert "VERIFIED CURVE" not in out
 
 
-def test_custom_fee_is_not_flagged_confirmed():
+def test_no_fee_is_ever_claimed_confirmed():
+    # custom fee on the verified curve: fee must be labelled an assumption,
+    # and the stale 0.2% claim must never appear.
     out = _render(buy_fee=0.01, sell_fee=0.01)
-    assert "CUSTOM SCENARIO" in out
-    assert "0.2% per side to treasury" not in out
+    assert "VERIFIED CURVE" in out          # curve is still verified
+    assert "ASSUMPTION" in out              # but fee is flagged as an assumption
+    assert "0.2%" not in out
 
 
 def test_house_seed_qualifies_scale_free_claim():
@@ -41,10 +44,10 @@ def test_house_seed_qualifies_scale_free_claim():
     assert "ownership are scale-free: they do NOT depend" not in out
 
 
-def test_non_usdt_quote_is_not_confirmed():
+def test_non_usdt_quote_is_not_verified():
     out = _render(quote="DAI")
-    assert "CUSTOM SCENARIO" in out
-    assert "CONFIRMED FROM 42" not in out
+    assert "CUSTOM CURVE" in out
+    assert "VERIFIED CURVE" not in out
 
 
 def test_mc_render_honors_quote():

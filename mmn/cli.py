@@ -1,17 +1,25 @@
-"""Command-line front-end for the 42 early-buyer profitability simulator.
+"""Command-line front-end for the MMN 42 / Event Rush buyer toolkit.
 
-Run interactively:        python -m mmn
-Run non-interactively:    python -m mmn --outcomes 4 --early-pct 1 --yes
+Two modes:
 
-Curve and fee are 42's CONFIRMED production values (verified against MC_Sim):
-    price p(x) = x^(3/4) / 2_000_000 ,  fee 0.2% per side.
-The only free knob is the $ scale, set by --full-mcap (a reference market cap
-per outcome). ROI and ownership are independent of it.
+  LIVE analyzer (primary) - uses real 42 market data from the REST API:
+      python -m mmn --list-live
+      python -m mmn --market <address-or-slug> --budget 100
+      python -m mmn --market-json snapshot.json --budget 100   (offline snapshot)
+
+  OFFLINE / HYPOTHETICAL simulator (legacy "buy first x% of supply" model):
+      python -m mmn --offline --outcomes 4 --early-pct 1 --yes
+
+The offline model is explicitly a what-if; only the LIVE analyzer reflects a
+real market's current state. Fees default to 42's DOCUMENTED protocol fee
+(~0.8%), not the earlier (incorrect) 0.2%. The dynamic redemption tax is not
+reproduced exactly, so redeem figures are flagged approximate.
 """
 
 from __future__ import annotations
 
 import argparse
+import json
 import math
 import sys
 
@@ -19,13 +27,14 @@ from .curves import FT_ALPHA, FT_PRICE_SCALE, AffineCurve, PowerCurve
 from .simulator import DEFAULT_MULTIPLES, SimConfig, SimResult, simulate
 from .montecarlo import McConfig, McResult, run_montecarlo
 from .chart import mc_histogram_svg, ownership_and_roi_svg
+from .fees import DOCUMENTED_PROTOCOL_FEE, REDEEM_TAX_MODES, FeeModel
+from .ft_api import DEFAULT_BASE_URL, FtApiError, FtClient, market_from_json
+from .live_simulator import BuyerPlan, analyze
+from .live_report import render_live, render_market_list
 
-# ============================================================================
-#  42 PRODUCTION DEFAULTS (verified against MC_Sim/parimutuel_sim/market.py)
-#    price p(x) = x^(3/4) / 2_000_000  ->  PowerCurve(k=1/2_000_000, n=3/4)
-#    market cap = cumulative USDT staked = (4/7)*x^(7/4)/2_000_000
-#    fee = 0.2% per side ; parimutuel settlement.
-# ============================================================================
+# Offline/hypothetical model defaults. The curve is 42's verified power curve;
+# the fee here is the DOCUMENTED protocol fee (configurable), NOT a confirmed
+# 0.2% (that earlier claim was wrong).
 DEFAULTS = {
     "curve": "power",
     "exponent": FT_ALPHA,                 # 0.75
@@ -34,12 +43,11 @@ DEFAULTS = {
     "base": 0.0,
     "full_mcap": 100_000.0,               # reference market cap per outcome (sets $ scale)
     "total_supply": None,                 # derived from full_mcap unless set explicitly
-    "house_seed": 0.0,                    # USDT the house seeds each outcome with
-    "buy_fee": 0.002,                     # 0.2% per buy  (confirmed)
-    "sell_fee": 0.002,                    # 0.2% per sell (confirmed)
+    "house_seed": 0.0,
+    "buy_fee": DOCUMENTED_PROTOCOL_FEE,   # 0.8% documented protocol fee (assumption)
+    "sell_fee": DOCUMENTED_PROTOCOL_FEE,
     "quote": "USDT",
 }
-# ============================================================================
 
 
 # ---------------------------------------------------------------------------
@@ -82,14 +90,16 @@ def _hr(width: int = 96) -> str:
 # report
 # ---------------------------------------------------------------------------
 def _is_ft_production(cfg) -> bool:
-    """True iff the run uses 42's exact production curve and the 0.2% fees."""
+    """True iff the run uses 42's verified production curve and USDT collateral.
+
+    Fees are NOT part of this check: 42's exact fee/redemption model is not
+    reproduced offline, so the report never asserts a specific fee as confirmed.
+    """
     c = cfg.curve
     return (isinstance(c, PowerCurve)
             and cfg.quote == "USDT"
             and math.isclose(c.k, 1.0 / FT_PRICE_SCALE, rel_tol=1e-9)
-            and math.isclose(c.n, FT_ALPHA, rel_tol=1e-9)
-            and math.isclose(cfg.buy_fee, 0.002, rel_tol=1e-9)
-            and math.isclose(cfg.sell_fee, 0.002, rel_tol=1e-9))
+            and math.isclose(c.n, FT_ALPHA, rel_tol=1e-9))
 
 
 def _curve_formula(c) -> str:
@@ -109,8 +119,10 @@ def render(result: SimResult) -> str:
     a = lines.append
 
     a("=" * 96)
-    a("42 / EVENT RUSH  -  EARLY-BUYER PROFITABILITY SIMULATOR")
+    a("42 / EVENT RUSH  -  OFFLINE / HYPOTHETICAL EARLY-BUYER MODEL")
     a("=" * 96)
+    a("  This is a WHAT-IF model on invented inputs, NOT a live market. For real")
+    a("  market numbers use:  python -m mmn --market <ref> --budget <USDT>")
     a("")
     a("INPUTS")
     a(_hr())
@@ -125,23 +137,24 @@ def render(result: SimResult) -> str:
     a("")
 
     if ft:
-        a("CONFIRMED FROM 42  (contracts IFTMarketV2/IFTCurve + MC_Sim/parimutuel_sim)")
+        a("VERIFIED CURVE  (42 power curve, from MC_Sim/parimutuel_sim)")
         a(_hr())
         a("  - Collateral = USDT (BEP-20, 18 decimals); one market = many ERC-6909 ids")
         a("  - Curve: marginal price  p(x) = x^(3/4) / 2,000,000")
         a("  - Market cap = cumulative USDT staked = (4/7) * x^(7/4) / 2,000,000")
-        a("  - Fee = 0.2% per side to treasury")
-        a("  - Settlement = parimutuel: payout/unit = total_pool / winning_supply,")
-        a("    i.e. winners split the whole USDT pot pro-rata")
+        a("  - Settlement = parimutuel: payout/unit = total_pool / winning_supply")
+        a(f"  - Fee modelled here: {cfg.buy_fee*100:g}% buy / {cfg.sell_fee*100:g}% sell "
+          "(ASSUMPTION; 42 docs describe ~0.8% protocol fee + a dynamic redemption")
+        a("    tax that is NOT reproduced here).")
     else:
-        a("CUSTOM SCENARIO  (NOT 42's confirmed production calibration)")
+        a("CUSTOM CURVE  (NOT 42's verified production curve)")
         a(_hr())
         a(f"  - Curve: marginal price  {_curve_formula(cfg.curve)}")
         a("  - Market cap = cumulative collateral staked (integral of price)")
-        a(f"  - Fee = {cfg.buy_fee*100:g}% buy / {cfg.sell_fee*100:g}% sell")
+        a(f"  - Fee modelled here: {cfg.buy_fee*100:g}% buy / {cfg.sell_fee*100:g}% sell "
+          "(your assumption)")
         a("  - Settlement = parimutuel: winners split the pot pro-rata")
-        a("  These are YOUR parameters; 42's production values are p(x)=x^(3/4)/2,000,000")
-        a("  with 0.2% per-side fees.")
+        a("  These are YOUR parameters; 42's verified curve is p(x)=x^(3/4)/2,000,000.")
     a("")
     a("ASSUMPTIONS / SCALE")
     a(_hr())
@@ -207,15 +220,16 @@ def render(result: SimResult) -> str:
           f"{fmt_num(s.settle_payout):>16} | {fmt_x(s.settle_roi):>10}")
     a("")
     a("=" * 96)
+    a("OFFLINE / HYPOTHETICAL model on invented inputs - use --market for live data.")
     if ft and not seeded:
-        a("Curve & fee are 42's confirmed production values. ROI and ownership are exact")
-        a("and scale-free; only the absolute USDT amounts depend on --full-mcap ($ scale).")
+        a("Curve is 42's verified power curve; fee is an assumption. ROI/ownership are")
+        a("scale-free; only the absolute amounts depend on --full-mcap ($ scale).")
     elif ft and seeded:
-        a("Curve & fee are 42's confirmed production values. With a house seed, ROI and")
-        a("ownership depend on the $ scale (--full-mcap / --total-supply).")
+        a("Curve is 42's verified power curve; fee is an assumption. With a house seed,")
+        a("ROI and ownership depend on the $ scale (--full-mcap / --total-supply).")
     else:
-        a("CUSTOM parameters (above) - not 42's production calibration. Dollar amounts,")
-        a("and (with a house seed) ROI/ownership too, depend on the chosen scale.")
+        a("CUSTOM curve/params (above) - not 42's verified curve. Dollar amounts, and")
+        a("(with a house seed) ROI/ownership too, depend on the chosen scale.")
     a("=" * 96)
     return "\n".join(lines)
 
@@ -332,12 +346,136 @@ def parse_args(argv):
     p.add_argument("--mc-seed", type=int, default=0)
     p.add_argument("-y", "--yes", action="store_true",
                    help="non-interactive: use flags/defaults without prompting")
+
+    # -- live-market analyzer (primary mode) --------------------------------
+    live = p.add_argument_group("live market analyzer")
+    live.add_argument("--offline", action="store_true",
+                      help="run the offline/hypothetical model instead of live data")
+    live.add_argument("--list-live", action="store_true",
+                      help="list markets from the 42 API and exit")
+    live.add_argument("--market", type=str, default=None,
+                      help="analyze a market by address or slug (uses the 42 API)")
+    live.add_argument("--market-json", type=str, default=None,
+                      help="analyze a market from a saved JSON snapshot (offline)")
+    live.add_argument("--status", choices=["live", "resolved", "all"], default="live")
+    live.add_argument("--limit", type=int, default=20, help="--list-live row limit")
+    live.add_argument("--api-base", type=str, default=DEFAULT_BASE_URL)
+    live.add_argument("--budget", type=float, default=None,
+                      help="total collateral to spend across all outcomes")
+    live.add_argument("--per-outcome-budget", type=float, default=None,
+                      help="fixed collateral to spend on each outcome")
+    live.add_argument("--target-ownership", type=float, default=None,
+                      help="buy until you own this %% of each outcome")
+    live.add_argument("--allocation", choices=["equal", "custom"], default="equal")
+    live.add_argument("--weights", type=str, default=None,
+                      help="custom allocation weights (comma list, len = outcomes)")
+    live.add_argument("--protocol-fee", type=float, default=DOCUMENTED_PROTOCOL_FEE * 100,
+                      help="protocol fee PERCENT (default %(default)s = documented 0.8%%)")
+    live.add_argument("--gas-usd", type=float, default=0.0)
+    live.add_argument("--redeem-tax-mode", choices=list(REDEEM_TAX_MODES),
+                      default="documented")
+    live.add_argument("--manual-redeem-tax", type=float, default=0.0,
+                      help="redeem tax PERCENT for manual/documented modes")
+    live.add_argument("--added-capital", type=float, default=0.0,
+                      help="later capital (collateral) assumed to flow in before resolution")
     return p.parse_args(argv)
+
+
+def _parse_weights(text):
+    return [float(x) for x in text.replace(",", " ").split()]
+
+
+def _client(args):
+    return FtClient(base_url=args.api_base)
+
+
+def _load_market(args):
+    if args.market_json:
+        with open(args.market_json) as fh:
+            return market_from_json(json.load(fh))
+    return _client(args).get_market(args.market)
+
+
+def _fee_model(args):
+    return FeeModel(
+        protocol_fee=args.protocol_fee / 100.0,
+        redeem_tax_mode=args.redeem_tax_mode,
+        manual_redeem_tax=args.manual_redeem_tax / 100.0,
+        gas_usd=args.gas_usd,
+    )
+
+
+def _build_plan(args):
+    return BuyerPlan(
+        budget=args.budget,
+        per_outcome_budget=args.per_outcome_budget,
+        target_ownership_pct=args.target_ownership,
+        allocation=args.allocation,
+        custom_weights=_parse_weights(args.weights) if args.weights else None,
+    )
+
+
+_USAGE = """\
+MMN - 42 / Event Rush buyer toolkit. Pick a mode:
+
+  Live market data (primary):
+    python -m mmn --list-live
+    python -m mmn --market <address-or-slug> --budget 100
+    python -m mmn --market <ref> --target-ownership 2 --winner-prior skewed
+    python -m mmn --market-json snapshot.json --budget 100   (offline snapshot)
+
+  Offline / hypothetical model (legacy 'buy first x% of supply'):
+    python -m mmn --offline --outcomes 4 --early-pct 1 --yes
+
+Run with -h for all flags."""
 
 
 def main(argv=None) -> int:
     args = parse_args(argv if argv is not None else sys.argv[1:])
 
+    if args.list_live:
+        try:
+            markets = _client(args).list_markets(status=args.status, limit=args.limit)
+        except FtApiError as e:
+            print(f"Could not list markets: {e}", file=sys.stderr)
+            return 2
+        print(render_market_list(markets, args.status))
+        return 0
+
+    if args.market or args.market_json:
+        try:
+            market = _load_market(args)
+        except FtApiError as e:
+            print(f"Could not load market: {e}", file=sys.stderr)
+            return 2
+        except (OSError, ValueError) as e:
+            print(f"Could not read market snapshot: {e}", file=sys.stderr)
+            return 2
+        if (args.budget is None and args.per_outcome_budget is None
+                and args.target_ownership is None):
+            print("Specify a buyer plan: --budget, --per-outcome-budget, or "
+                  "--target-ownership.", file=sys.stderr)
+            return 2
+        try:
+            result = analyze(
+                market, _build_plan(args), _fee_model(args),
+                prior=_parse_prior(args.winner_prior, market.num_outcomes),
+                added_capital=args.added_capital,
+            )
+        except ValueError as e:
+            print(f"Invalid analysis input: {e}", file=sys.stderr)
+            return 2
+        print(render_live(result))
+        return 0
+
+    if not args.offline:
+        print(_USAGE)
+        return 0
+
+    return _run_offline(args)
+
+
+def _run_offline(args) -> int:
     interactive = not args.yes and args.outcomes is None and args.early_pct is None
     if interactive:
         print("42 / Event Rush early-buyer simulator - press Enter to accept defaults.\n")

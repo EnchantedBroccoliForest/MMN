@@ -24,7 +24,7 @@
 <rect x="361.5" y="187.7" width="12.2" height="4.3" fill="#93c5fd"/>
 <rect x="374.8" y="186.9" width="12.2" height="5.1" fill="#93c5fd"/>
 <rect x="388.0" y="188.5" width="12.2" height="3.5" fill="#93c5fd"/>
-<rect x="401.3" y="188.7" width="12.2" height="3.3" fill="#93c5fd"/>
+<rect x="401.2" y="188.7" width="12.2" height="3.3" fill="#93c5fd"/>
 <rect x="414.5" y="188.3" width="12.2" height="3.7" fill="#93c5fd"/>
 <rect x="427.8" y="189.3" width="12.2" height="2.7" fill="#93c5fd"/>
 <rect x="441.0" y="188.9" width="12.2" height="3.1" fill="#93c5fd"/>
@@ -41,10 +41,10 @@
 <rect x="586.8" y="168.6" width="12.2" height="23.4" fill="#93c5fd"/>
 <line x1="70" y1="192" x2="600" y2="192" stroke="#374151"/>
 <line x1="139.1" y1="36" x2="139.1" y2="192" stroke="#059669" stroke-width="1.5" stroke-dasharray="4 3"/>
-<text x="139.1" y="34" text-anchor="middle" font-size="10" fill="#059669">median 13.51x</text>
+<text x="139.1" y="34" text-anchor="middle" font-size="10" fill="#059669">median 13.43x</text>
 <line x1="187.1" y1="36" x2="187.1" y2="192" stroke="#dc2626" stroke-width="1.5" stroke-dasharray="4 3"/>
-<text x="187.1" y="34" text-anchor="middle" font-size="10" fill="#dc2626">mean 20.33x</text>
-<text x="184.7" y="208" text-anchor="middle" font-size="10" fill="#374151">20x</text>
-<text x="325.3" y="208" text-anchor="middle" font-size="10" fill="#374151">40x</text>
-<text x="465.9" y="208" text-anchor="middle" font-size="10" fill="#374151">60x</text>
+<text x="187.1" y="34" text-anchor="middle" font-size="10" fill="#dc2626">mean 20.21x</text>
+<text x="185.6" y="208" text-anchor="middle" font-size="10" fill="#374151">20x</text>
+<text x="327.0" y="208" text-anchor="middle" font-size="10" fill="#374151">40x</text>
+<text x="468.5" y="208" text-anchor="middle" font-size="10" fill="#374151">60x</text>
 <text x="335" y="226" text-anchor="middle" font-size="12">settlement payout / total spend</text></svg>

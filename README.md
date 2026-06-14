@@ -1,185 +1,173 @@
-# 42 / Event Rush — Early-Buyer Profitability Simulator
+# MMN — 42 / Event Rush buyer toolkit
 
-A small, dependency-free Python tool that models the profitability and ownership
-of being an **early buyer** on a [42.space](https://www.42.space/) /
-**Event Rush** market (the 42-powered dApp in Binance Wallet on BNB Chain).
+A dependency-free Python tool for analyzing **buyer profitability** on
+[42.space](https://www.42.space/) / **Event Rush** markets (the 42-powered dApp
+on BNB Chain). It has two modes:
 
-It answers the three questions:
+- **Live analyzer (primary)** — pulls a real market's current state from the 42
+  REST API and answers practical buyer questions: *if I spend X USDT now, what do
+  I get, what do I own, what's my payout if each outcome wins, and what growth do
+  I need to break even?*
+- **Offline / hypothetical simulator (legacy)** — the original "buy the first x%
+  of supply" what-if model. Useful for intuition, but it runs on **invented**
+  inputs and is **not** a live market.
 
-1. **How many outcomes** are in the market?
-2. If you buy **x% of the earliest part of every outcome's bonding curve**, how
-   much do you **spend in total**?
-3. As the **market cap of every outcome grows**, what is your **profitability**
-   and **% ownership** at each stage?
-
-The bonding-curve math is closed-form and **cross-checked against numerical
-integration** in the test suite, so the numbers are exact for the parameters you
-give it.
-
----
-
-## How 42 / Event Rush works (the mechanism this models)
-
-Sourced from 42's docs and Event Rush coverage (links at the bottom):
-
-- A **market** has **N possible outcomes**.
-- Each outcome is its own **outcome token** (eventcoin) on its **own bonding
-  curve** (the docs call it a *power curve*), collateralised in **USDT** on BSC.
-- **Buy (mint):** you add USDT, the curve mints tokens to you and the price
-  moves **up** the curve. **Sell (redeem):** you burn tokens back into the curve,
-  receive USDT from the reserve, and the price moves **down**.
-- Trading is **continuous** — price reflects relative supply / where capital is
-  flowing, not a fixed probability. You can exit any time **before** resolution
-  by selling back into the curve.
-- At **resolution** the market settles to a **single winning outcome**
-  (**parimutuel**): all USDT collateral locked in the **losing** outcomes is
-  pooled and paid out **pro-rata to holders of the winning token**. Your payout
-  on a win = `your share of the winning token × total USDT pot`.
-
-### Confirmed from 42 (contracts + MC_Sim)
-
-Corroborated by 42's contract interfaces (`IFTMarketV2`, `IFTCurve`) **and the
-exact formulas in `EnchantedBroccoliForest/MC_Sim`** (`parimutuel_sim/market.py`):
-
-- **Collateral = USDT** (BEP-20, 18 decimals); one market holds every outcome as
-  an **ERC-6909 token id**.
-- **Production curve (exact):** marginal price `p(x) = x^(3/4) / 2,000,000`.
-- **Market cap = cumulative USDT staked** in an outcome
-  `= (4/7)·x^(7/4) / 2,000,000` (equal to the bonding-curve reserve — **not**
-  price×supply).
-- **Buy** = `mintCollateralToExactOt`, **Sell** = `redeemExactOtToCollateral`;
-  **fee = 0.2% per side** to treasury.
-- **Settlement = parimutuel:** `payout_per_unit = total_pool / winning_supply`,
-  so winning-token holders split the whole USDT pot pro-rata.
-- Each outcome may carry a small **house seed** of initial market cap.
-
-The curve and fee are therefore 42's **real production values**, not placeholders.
-The only free parameter is the **dollar scale** (`--full-mcap`, a reference market
-cap per outcome); ROI and ownership are independent of it.
-
-### The model
-
-42's per-outcome production curve, marginal price at supply `x`:
-
-```
-p(x) = x^(3/4) / 2,000,000          (a power curve: k = 1/2,000,000, n = 3/4)
-```
-
-Derived quantities (with `n = 3/4`, so `n+1 = 7/4`):
-
-| Quantity            | Formula                                   |
-|---------------------|-------------------------------------------|
-| **market cap** = cumulative USDT staked `M(x)` | `(4/7)·x^(7/4) / 2,000,000` |
-| cost to mint `a → b`         | `M(b) − M(a)`                    |
-| redeem proceeds `b → a`      | `M(b) − M(a)`                    |
-| mint units for `$D` from `x` | `(x^(7/4) + (7/4)·2,000,000·D)^(4/7) − x` |
-
-(`market cap = reserve` here — this is the parimutuel pot contribution, not
-price×supply.)
-
-**Step 1–2 (spend).** Buying the first **x%** of supply means `q = x% · S` units
-(`S` set by `--full-mcap`). Spend per outcome = `M(0 → q)` × `(1 + 0.2%)`; total
-spend = `N ×` that.
-
-**Step 3 (growth).** Stages are **market-cap multiples** of your entry market cap.
-At multiple `M` the supply rises to `s = q · M^(4/7)`, giving these **scale-free**
-results (true for any `--full-mcap`, when there is no house seed):
-
-- **% ownership** = `q / s = M^(−4/7)` — your stake dilutes as others stake.
-- **redeem value** (sell back into the curve) = `M(s) − M(s−q)`, times `1 − 0.2%`.
-- **settlement (win) payout** = `ownership × total_pot` with `total_pot = N · M(s)`;
-  payout / spend = **`M^(3/7)`**.
+> **Fees:** 42's docs describe a **protocol fee (~0.8%)** plus a **dynamic
+> redemption tax/spread**. An earlier version of this tool wrongly hard-coded
+> "0.2% confirmed" — that claim is gone. The protocol fee now defaults to the
+> documented **0.8%** (configurable), and the dynamic redemption tax is **not**
+> reproduced exactly, so all redeem/exit figures are clearly flagged
+> **approximate**.
 
 ---
 
-## Usage
-
-No third-party dependencies are required to run it (Python 3.9+).
+## Live analyzer (use this for real markets)
 
 ```bash
-# Interactive — prompts for outcomes, x%, reference market cap, multiples
-python -m mmn
+# 1) Discover markets from the 42 API
+python -m mmn --list-live --status live
 
-# Non-interactive (defaults to 42's confirmed curve + 0.2% fee)
-python -m mmn --outcomes 4 --early-pct 1 --yes
+# 2) Analyze a market by address or slug, spending 100 USDT split equally
+python -m mmn --market mci-vs-cry-result --budget 100
 
-# Tune the scenario
-python -m mmn --outcomes 3 --early-pct 0.5 \
-    --full-mcap 250000 --house-seed 5 \
-    --multiples "1 2 5 10 50 100 1000" --yes
+# 3) Richer plan: reach 2% ownership in each outcome, with your own winner prior
+python -m mmn --market 0x42...cd42 --target-ownership 2 --winner-prior 0.5,0.3,0.2
 
-# Write SVG charts + run the Monte Carlo
-python -m mmn --outcomes 8 --early-pct 1 --monte-carlo --mc-trials 20000 \
+# 4) No network? Analyze a saved JSON snapshot of a market
+python -m mmn --market-json examples/sample_market.json --budget 300 --winner-prior skewed
+```
+
+### What the live report shows
+
+`[API]` = exact from the 42 API · `[curve]` = exact curve math · `[est]` =
+estimate · `[you]` = your assumption.
+
+- **Market summary** and **current outcomes** (price, market cap, minted qty) — `[API]`
+- **Buyer plan** — your budget / per-outcome budget / target ownership
+- **Expenses** — upfront spend, protocol fee, gas, total invested
+- **Ownership after buy** — tokens received and your % of each outcome `[curve]`
+- **Settlement payout by winning outcome** — `ownership × total pot`, ROI, and the
+  break-even pot per outcome `[curve]`
+- **Expected profitability** — under a winner prior (uniform if none given)
+- **Exit / redeem** — an **approximate** sell-back value, with a loud caveat that
+  42's dynamic redemption tax is not implemented
+- **Assumptions & warnings**
+
+### Live flags
+
+| Flag | Meaning |
+|------|---------|
+| `--list-live` / `--status live\|resolved\|all` / `--limit N` | discover markets |
+| `--market REF` | analyze a market by address or slug (REST API) |
+| `--market-json PATH` | analyze a saved market snapshot (no network) |
+| `--api-base URL` | override the API base (default `https://rest.ft.42.space/api/v1`) |
+| `--budget USDT` | total spend, split per `--allocation` |
+| `--per-outcome-budget USDT` | fixed spend on each outcome |
+| `--target-ownership PCT` | buy until you own PCT% of each outcome |
+| `--allocation equal\|custom` + `--weights a,b,c` | how `--budget` is split |
+| `--protocol-fee PCT` | protocol fee percent (default **0.8**, documented) |
+| `--gas-usd USD` | flat gas cost (default 0) |
+| `--redeem-tax-mode documented\|ignore\|manual` + `--manual-redeem-tax PCT` | how the (approximate) redemption tax is applied |
+| `--added-capital USDT` | later capital assumed to flow in before resolution |
+| `--winner-prior uniform\|skewed\|a,b,c` | winner probabilities for expected ROI |
+
+Network is required for `--list-live` / `--market`; use `--market-json` to run
+fully offline against a snapshot (the API client is standard-library `urllib`).
+
+---
+
+## How 42 / Event Rush works
+
+- A **market** has **N outcomes**; each is its own **outcome token** on its own
+  **bonding ("power") curve**, collateralised in **USDT** on BNB Chain. One market
+  holds all outcomes as **ERC-6909 token ids**.
+- **Buy (mint)** adds USDT and moves price up the curve; **sell (redeem)** burns
+  tokens back into the curve (subject to the protocol fee and a dynamic
+  redemption tax).
+- At **resolution** the market settles **parimutuel**: the whole USDT pot is paid
+  to winning-token holders pro-rata — `payout_per_unit = total_pool / winning_supply`.
+
+### Verified curve (from `EnchantedBroccoliForest/MC_Sim`)
+
+The per-outcome curve, verified against `parimutuel_sim/market.py` (the test
+suite asserts an exact match to its `price` / `mcap` / `mint_units` /
+`supply_for_mcap`):
+
+```
+marginal price   p(x) = x^(3/4) / 2,000,000
+market cap       M(x) = (4/7)·x^(7/4) / 2,000,000   = cumulative USDT staked (= reserve)
+mint units ($D)  (x^(7/4) + (7/4)·2,000,000·D)^(4/7) − x
+```
+
+Market cap is the **cumulative staked** collateral (the pot contribution), **not**
+price×supply. The live analyzer mints from each outcome's **current**
+`mintedQuantity` and treats the API `marketCap` as the pot.
+
+---
+
+## Offline / hypothetical simulator (legacy)
+
+The original model: *buy the first x% of every outcome's supply, then watch the
+market cap grow.* It runs on invented inputs — clearly labelled HYPOTHETICAL in
+the report — and is handy for intuition and the Monte Carlo view.
+
+```bash
+python -m mmn --offline --outcomes 4 --early-pct 1 --yes
+python -m mmn --offline --outcomes 3 --early-pct 0.5 --full-mcap 250000 --house-seed 5 --yes
+
+# SVG charts + Monte Carlo (random house seeds, uneven capital, random winner)
+python -m mmn --offline --outcomes 8 --early-pct 1 --monte-carlo --mc-trials 20000 \
     --winner-prior skewed --chart examples/early_buyer.svg --yes
 ```
 
-## Charts & Monte Carlo
+Scale-free identities on the verified curve (no house seed): ownership at
+market-cap multiple `M` is `M^(−4/7)`; settlement-win payout/spend is `M^(3/7)`.
+With `--house-seed`, the seed is absolute, so ROI/ownership then depend on scale.
+Charts and the Monte Carlo write dependency-free SVG (see `examples/`).
 
-- **`--chart PATH.svg`** writes a dependency-free SVG (renders on GitHub / any
-  browser): two panels — your **% ownership** and your **return multiple**
-  (sell-back and settlement) vs market-cap growth. See
-  [`examples/early_buyer.svg`](examples/early_buyer.svg).
-- **`--monte-carlo`** samples the realistic picture the deterministic table
-  can't: a random **house seed** per outcome (Uniform 0.10–10 USDT, MC_Sim's
-  range), **uneven later capital** (favourites attract more, via a Dirichlet
-  split around the winner prior), and a **random winner**. Because you hold the
-  same early slice of *every* outcome, your settlement payout is
-  `ownership_in_winner × total_pot` — a distribution, reported as mean / median /
-  5th / 95th percentile and P(profit). With `--chart` it also writes a histogram
-  ([`examples/early_buyer-montecarlo.svg`](examples/early_buyer-montecarlo.svg)).
+---
 
-  Knobs: `--mc-trials`, `--mc-mean-pool`, `--pool-sigma`, `--concentration`,
-  `--seed-min/--seed-max`, `--winner-prior {uniform|skewed|comma-list}`, `--mc-seed`.
-
-### Run the tests
+## Run the tests
 
 ```bash
 pip install pytest
 python -m pytest -q
 ```
 
----
-
-## Calibration
-
-The curve (`p(x) = x^(3/4)/2,000,000`) and fee (0.2%/side) in `mmn/cli.py`
-(`DEFAULTS`) are 42's **confirmed production values**, verified against
-`EnchantedBroccoliForest/MC_Sim` (`parimutuel_sim/market.py`) — the test suite
-asserts an exact match to its `price` / `mcap` / `mint_units` / `supply_for_mcap`.
-
-The only thing you set is the **dollar scale**:
-
-- `--full-mcap` — a reference market cap per outcome (defaults to 100,000 USDT)
-- `--house-seed` — optional initial market cap the house seeds each outcome with
-
-With **no house seed**, ROI and ownership are **scale-free** — exact regardless of
-`--full-mcap`. With `--house-seed` set, the seed is an absolute USDT amount while
-your position scales with `--full-mcap`/`--total-supply`, so the scale **does**
-affect dilution and ROI in that case.
-
----
-
 ## Project layout
 
 ```
 mmn/
-  curves.py      # PowerCurve / AffineCurve bonding-curve math (closed-form)
-  simulator.py   # spend, growth stages, ownership, P&L, parimutuel settlement
-  montecarlo.py  # random seeds + uneven capital + random winner -> ROI distribution
-  chart.py       # dependency-free SVG charts (ownership/ROI + MC histogram)
-  cli.py         # interactive + flag-driven front-end and report rendering
-  __main__.py    # `python -m mmn`
+  ft_api.py        # 42 REST client (stdlib urllib; injectable transport for tests)
+  fees.py          # protocol fee + (approximate) redemption tax model
+  live_simulator.py# live buyer analyzer: spend, ownership, settlement, expected ROI
+  live_report.py   # buyer-facing live report + market list
+  curves.py        # PowerCurve / AffineCurve bonding-curve math (closed-form)
+  simulator.py     # offline "buy first x%" model + parimutuel settlement
+  montecarlo.py    # offline MC: random seeds + uneven capital + random winner
+  chart.py         # dependency-free SVG charts
+  cli.py           # live-first CLI; --offline for the hypothetical model
 tests/
-  test_curves.py      # closed-form vs integration + EXACT match to MC_Sim formulas
-  test_simulator.py   # economic identities (ownership=M^-4/7, win=M^3/7, fees, scale-free)
-  test_montecarlo.py  # MC invariants + SVG well-formedness
+  test_ft_api.py     # API parsing, error handling, missing fields (mocked HTTP)
+  test_live.py       # allocation, fees, target ownership, settlement, priors, report
+  test_curves.py     # closed-form vs integration + EXACT match to MC_Sim formulas
+  test_simulator.py  # offline identities (ownership=M^-4/7, win=M^3/7, fees)
+  test_montecarlo.py # MC invariants + SVG well-formedness
+  test_cli.py        # offline report provenance/labels
 ```
+
+## A note on verification
+
+This build was assembled in a sandbox **without** network access to
+`rest.ft.42.space` or `docs.42.space`, so the live API shape and the exact fee
+model could not be empirically re-verified here. The client is written to the
+documented contract and parses defensively (multiple key spellings, missing
+fields degrade gracefully); adjust `mmn/ft_api.py` `_FIELDS`/spellings and the
+`--protocol-fee` default once you confirm against the live API and current docs.
+Run a quick `python -m mmn --list-live` from a networked environment to validate.
 
 ## Sources
 
-- [42 — Trade the Future](https://www.42.space/)
-- [42 Docs — 42 Markets](https://docs.42.space/getting-started/protocol-mechanics-101/42-markets)
-- [Binance Wallet Event Rush turns on-chain events into tradable markets — crypto.news](https://crypto.news/binance-wallet-event-rush-turns-on-chain-events-into-tradable-markets/)
-- [Binance Wallet Launches Event Rush — DailyCoin](https://dailycoin.com/binance-wallet-event-rush-trade-real-world-events)
-- [42 V2 Launches on BNB Chain introducing Eventcoins — BlockchainReporter](https://blockchainreporter.net/42-v2-launches-on-bnb-chain-introducing-eventcoins-as-a-new-tradable-asset-class)
-- `EnchantedBroccoliForest/MC_Sim` — `parimutuel_sim/market.py` (exact curve & settlement)
+- [42 — Trade the Future](https://www.42.space/) · [42 Docs](https://docs.42.space/) · [REST API (alpha)](https://docs.42.space/for-developers/rest-api-alpha)
+- [42 Markets](https://docs.42.space/getting-started/protocol-mechanics-101/42-markets) · [Power curves](https://docs.42.space/getting-started/protocol-mechanics-101/42-power-curves) · [Fees](https://docs.42.space/getting-started/protocol-mechanics-101/fees)
+- `EnchantedBroccoliForest/MC_Sim` — `parimutuel_sim/market.py` (verified curve & settlement)
