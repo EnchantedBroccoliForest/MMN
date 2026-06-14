@@ -198,12 +198,12 @@ def render(result: SimResult) -> str:
     a(f"STEP 3  -  AGGREGATE P&L  (all {cfg.num_outcomes} outcomes; spend "
       f"{fmt_money(result.total_spend, quote)})")
     a(_hr())
-    hdr2 = (f"  {'MCcap x':>7} | {'agg spot':>16} | {'spot ROI':>10} | "
+    hdr2 = (f"  {'MCcap x':>7} | {'agg spot':>16} | "
             f"{'agg redeem':>16} | {'redeem ROI':>10}")
     a(hdr2)
-    a("  " + _hr(92))
+    a("  " + _hr(79))
     for s in result.stages:
-        a(f"  {s.multiple:>6g}x | {fmt_num(s.agg_spot_value):>16} | {fmt_x(s.spot_roi):>10} | "
+        a(f"  {s.multiple:>6g}x | {fmt_num(s.agg_spot_value):>16} | "
           f"{fmt_num(s.agg_redeem_value):>16} | {fmt_x(s.redeem_roi):>10}")
     a("")
 
