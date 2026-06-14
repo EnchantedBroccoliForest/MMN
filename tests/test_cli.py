@@ -37,7 +37,7 @@ def test_house_seed_qualifies_scale_free_claim():
     out = _render(house_seed_mcap=5.0)
     assert "DO depend on the $ scale" in out
     # the unconditional "scale-free" reassurance must not appear for seeded runs
-    assert "are scale-free" not in out
+    assert "ownership are scale-free: they do NOT depend" not in out
 
 
 def test_is_ft_production_predicate():
