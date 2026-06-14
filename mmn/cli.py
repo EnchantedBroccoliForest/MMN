@@ -12,6 +12,7 @@ per outcome). ROI and ownership are independent of it.
 from __future__ import annotations
 
 import argparse
+import math
 import sys
 
 from .curves import FT_ALPHA, FT_PRICE_SCALE, AffineCurve, PowerCurve
@@ -80,9 +81,29 @@ def _hr(width: int = 96) -> str:
 # ---------------------------------------------------------------------------
 # report
 # ---------------------------------------------------------------------------
+def _is_ft_production(cfg) -> bool:
+    """True iff the run uses 42's exact production curve and the 0.2% fees."""
+    c = cfg.curve
+    return (isinstance(c, PowerCurve)
+            and math.isclose(c.k, 1.0 / FT_PRICE_SCALE, rel_tol=1e-9)
+            and math.isclose(c.n, FT_ALPHA, rel_tol=1e-9)
+            and math.isclose(cfg.buy_fee, 0.002, rel_tol=1e-9)
+            and math.isclose(cfg.sell_fee, 0.002, rel_tol=1e-9))
+
+
+def _curve_formula(c) -> str:
+    if isinstance(c, PowerCurve):
+        return f"p(x) = {c.k:g} * x^{c.n:g}"
+    if isinstance(c, AffineCurve):
+        return f"p(x) = {c.m:g} * x + {c.b:g}"
+    return "custom curve"
+
+
 def render(result: SimResult) -> str:
     cfg = result.config
     quote = cfg.quote
+    ft = _is_ft_production(cfg)
+    seeded = bool(cfg.house_seed_mcap)
     lines = []
     a = lines.append
 
@@ -102,18 +123,33 @@ def render(result: SimResult) -> str:
     a(f"  Collateral                : {quote}")
     a("")
 
-    a("CONFIRMED FROM 42  (contracts IFTMarketV2/IFTCurve + MC_Sim/parimutuel_sim)")
-    a(_hr())
-    a("  - Collateral = USDT (BEP-20, 18 decimals); one market = many ERC-6909 ids")
-    a("  - Curve: marginal price  p(x) = x^(3/4) / 2,000,000")
-    a("  - Market cap = cumulative USDT staked = (4/7) * x^(7/4) / 2,000,000")
-    a("  - Fee = 0.2% per side to treasury")
-    a("  - Settlement = parimutuel: payout/unit = total_pool / winning_supply,")
-    a("    i.e. winners split the whole USDT pot pro-rata")
+    if ft:
+        a("CONFIRMED FROM 42  (contracts IFTMarketV2/IFTCurve + MC_Sim/parimutuel_sim)")
+        a(_hr())
+        a("  - Collateral = USDT (BEP-20, 18 decimals); one market = many ERC-6909 ids")
+        a("  - Curve: marginal price  p(x) = x^(3/4) / 2,000,000")
+        a("  - Market cap = cumulative USDT staked = (4/7) * x^(7/4) / 2,000,000")
+        a("  - Fee = 0.2% per side to treasury")
+        a("  - Settlement = parimutuel: payout/unit = total_pool / winning_supply,")
+        a("    i.e. winners split the whole USDT pot pro-rata")
+    else:
+        a("CUSTOM SCENARIO  (NOT 42's confirmed production calibration)")
+        a(_hr())
+        a(f"  - Curve: marginal price  {_curve_formula(cfg.curve)}")
+        a("  - Market cap = cumulative collateral staked (integral of price)")
+        a(f"  - Fee = {cfg.buy_fee*100:g}% buy / {cfg.sell_fee*100:g}% sell")
+        a("  - Settlement = parimutuel: winners split the pot pro-rata")
+        a("  These are YOUR parameters; 42's production values are p(x)=x^(3/4)/2,000,000")
+        a("  with 0.2% per-side fees.")
     a("")
-    a("ASSUMED  (only the $ scale - ROI and ownership do NOT depend on it)")
+    a("ASSUMPTIONS / SCALE")
     a(_hr())
-    a(f"  - Reference market cap per outcome sets the supply scale")
+    if seeded:
+        a("  - A house seed is set: it is an ABSOLUTE amount, so ROI and ownership")
+        a("    DO depend on the $ scale here (they are scale-free only when seed = 0).")
+    else:
+        a("  - ROI and ownership are scale-free: they do NOT depend on the $ scale")
+        a("    (reference market cap / supply); only the USDT amounts scale with it.")
     a("  - MC_Sim is mint-and-hold; redeem values assume 42's sell-back is available")
     a("")
 
@@ -170,8 +206,15 @@ def render(result: SimResult) -> str:
           f"{fmt_num(s.settle_payout):>16} | {fmt_x(s.settle_roi):>10}")
     a("")
     a("=" * 96)
-    a("Curve & fee are 42's confirmed production values. ROI and ownership are exact and")
-    a("scale-free; only the absolute USDT amounts depend on --full-mcap (the $ scale).")
+    if ft and not seeded:
+        a("Curve & fee are 42's confirmed production values. ROI and ownership are exact")
+        a("and scale-free; only the absolute USDT amounts depend on --full-mcap ($ scale).")
+    elif ft and seeded:
+        a("Curve & fee are 42's confirmed production values. With a house seed, ROI and")
+        a("ownership depend on the $ scale (--full-mcap / --total-supply).")
+    else:
+        a("CUSTOM parameters (above) - not 42's production calibration. Dollar amounts,")
+        a("and (with a house seed) ROI/ownership too, depend on the chosen scale.")
     a("=" * 96)
     return "\n".join(lines)
 
@@ -350,8 +393,8 @@ def main(argv=None) -> int:
             seed_min=args.seed_min,
             seed_max=args.seed_max,
             prior=_parse_prior(args.winner_prior, args.outcomes),
-            mean_added_pool=(args.mc_mean_pool
-                             if args.mc_mean_pool else args.full_mcap * args.outcomes),
+            mean_added_pool=(args.mc_mean_pool if args.mc_mean_pool
+                             else curve.reserve(total_supply) * args.outcomes),
             pool_sigma=args.pool_sigma,
             concentration=args.concentration,
             n_trials=args.mc_trials,
