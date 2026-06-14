@@ -3,8 +3,10 @@
 Run interactively:        python -m mmn
 Run non-interactively:    python -m mmn --outcomes 4 --early-pct 1 --yes
 
-The bonding-curve constants below the BIG NOTICE are PLACEHOLDERS. Replace them
-with 42's real on-chain parameters (USDT collateral) to get exact numbers.
+Curve and fee are 42's CONFIRMED production values (verified against MC_Sim):
+    price p(x) = x^(3/4) / 2_000_000 ,  fee 0.2% per side.
+The only free knob is the $ scale, set by --full-mcap (a reference market cap
+per outcome). ROI and ownership are independent of it.
 """
 
 from __future__ import annotations
@@ -12,25 +14,26 @@ from __future__ import annotations
 import argparse
 import sys
 
-from .curves import AffineCurve, PowerCurve
+from .curves import FT_ALPHA, FT_PRICE_SCALE, AffineCurve, PowerCurve
 from .simulator import DEFAULT_MULTIPLES, SimConfig, SimResult, simulate
 
 # ============================================================================
-#  >>> PASTE 42'S REAL CURVE PARAMETERS HERE <<<
-#  These defaults are PLACEHOLDERS chosen to give readable round numbers. They
-#  are NOT 42's on-chain constants. The shape (power curve p(s)=k*s^n) matches
-#  the docs' "power curve" wording; swap in the verified contract's values.
+#  42 PRODUCTION DEFAULTS (verified against MC_Sim/parimutuel_sim/market.py)
+#    price p(x) = x^(3/4) / 2_000_000  ->  PowerCurve(k=1/2_000_000, n=3/4)
+#    market cap = cumulative USDT staked = (4/7)*x^(7/4)/2_000_000
+#    fee = 0.2% per side ; parimutuel settlement.
 # ============================================================================
 DEFAULTS = {
-    "curve": "power",            # "power" -> p(s)=k*s^n ; "affine" -> p(s)=m*s+b
-    "exponent": 1.0,             # n for the power curve
-    "total_supply": 1_000_000_000.0,   # tokens minted across the full curve, per outcome
-    "mcap_at_full": 100_000.0,   # spot market cap (USDT) when supply == total_supply
-    "coefficient": None,         # k; if set, overrides mcap_at_full
-    "slope": 1e-13,              # m for the affine curve
-    "base": 0.0,                 # b for the affine curve
-    "buy_fee": 0.002,            # 0.2% per buy  (confirmed: 0.2% per side)
-    "sell_fee": 0.002,           # 0.2% per sell (confirmed: 0.2% per side)
+    "curve": "power",
+    "exponent": FT_ALPHA,                 # 0.75
+    "coefficient": 1.0 / FT_PRICE_SCALE,  # 5e-7
+    "slope": 1e-13,                       # affine alt only
+    "base": 0.0,
+    "full_mcap": 100_000.0,               # reference market cap per outcome (sets $ scale)
+    "total_supply": None,                 # derived from full_mcap unless set explicitly
+    "house_seed": 0.0,                    # USDT the house seeds each outcome with
+    "buy_fee": 0.002,                     # 0.2% per buy  (confirmed)
+    "sell_fee": 0.002,                    # 0.2% per sell (confirmed)
     "quote": "USDT",
 }
 # ============================================================================
@@ -45,7 +48,6 @@ def fmt_money(x: float, quote: str = "USDT") -> str:
     ax = abs(x)
     if ax >= 1:
         return f"{x:,.2f} {quote}"
-    # small numbers: show enough significant digits
     return f"{x:,.6g} {quote}"
 
 
@@ -78,7 +80,7 @@ def _hr(width: int = 96) -> str:
 # ---------------------------------------------------------------------------
 def render(result: SimResult) -> str:
     cfg = result.config
-    q = quote = cfg.quote
+    quote = cfg.quote
     lines = []
     a = lines.append
 
@@ -91,25 +93,26 @@ def render(result: SimResult) -> str:
     a(f"  Outcomes in market        : {cfg.num_outcomes}")
     a(f"  Early buy (% of supply)   : {cfg.early_pct:g}%  (the cheapest, earliest tokens)")
     a(f"  Per-outcome curve         : {cfg.curve!r}")
-    a(f"  Total supply / outcome    : {fmt_num(cfg.total_supply)} tokens")
+    a(f"  Reference supply / outcome: {fmt_num(cfg.total_supply)} tokens")
+    if cfg.house_seed_mcap:
+        a(f"  House seed / outcome      : {fmt_money(cfg.house_seed_mcap, quote)}")
     a(f"  Buy / sell fee            : {cfg.buy_fee*100:g}% / {cfg.sell_fee*100:g}%")
     a(f"  Collateral                : {quote}")
     a("")
 
-    a("CONFIRMED FROM 42's CONTRACTS  (IFTMarketV2 / IFTCurve)")
+    a("CONFIRMED FROM 42  (contracts IFTMarketV2/IFTCurve + MC_Sim/parimutuel_sim)")
     a(_hr())
-    a("  - Collateral = USDT (BEP-20, 18 decimals)")
-    a("  - One market holds every outcome as an ERC-6909 token id")
-    a("  - Buy  = mintCollateralToExactOt   Sell = redeemExactOtToCollateral")
-    a("  - Curve = Hanson Market-Scoring-Rule AMM: cost C(supply), price = C'(supply)")
-    a("  - Trading fee skimmed to a treasury on every buy/sell")
-    a("  - Settlement = parimutuel claim(): winners split the USDT pot pro-rata")
+    a("  - Collateral = USDT (BEP-20, 18 decimals); one market = many ERC-6909 ids")
+    a("  - Curve: marginal price  p(x) = x^(3/4) / 2,000,000")
+    a("  - Market cap = cumulative USDT staked = (4/7) * x^(7/4) / 2,000,000")
+    a("  - Fee = 0.2% per side to treasury")
+    a("  - Settlement = parimutuel: payout/unit = total_pool / winning_supply,")
+    a("    i.e. winners split the whole USDT pot pro-rata")
     a("")
-    a("ASSUMED  (no on-chain constants available - edit DEFAULTS in mmn/cli.py)")
+    a("ASSUMED  (only the $ scale - ROI and ownership do NOT depend on it)")
     a(_hr())
-    a("  - Exact curve shape & constants: using power curve p(s)=k*s^n as a stand-in")
-    a("  - Total supply per outcome, fee bps, and full-supply market cap")
-    a("  The MACHINERY is exact; swap in real constants for 42-accurate figures.")
+    a(f"  - Reference market cap per outcome sets the supply scale")
+    a("  - MC_Sim is mint-and-hold; redeem values assume 42's sell-back is available")
     a("")
 
     a("STEP 1-2  -  ENTRY COST")
@@ -120,11 +123,13 @@ def render(result: SimResult) -> str:
     a(f"  Outcomes bought           : {cfg.num_outcomes}")
     a(f"  >> TOTAL SPEND            : {fmt_money(result.total_spend, quote)}")
     a(f"  Entry price / token       : {fmt_money(result.entry_price, quote)}")
-    a(f"  Entry market cap/outcome  : {fmt_money(result.entry_market_cap, quote)}")
+    a(f"  Entry market cap/outcome  : {fmt_money(result.entry_market_cap, quote)}  "
+      f"(cumulative USDT staked)")
     a("")
 
     a("STEP 3  -  PROFITABILITY AS MARKET CAP GROWS  (per single outcome held)")
     a(_hr())
+    a("  market cap = cumulative USDT staked in that outcome")
     hdr = (f"  {'MCcap x':>7} | {'mkt cap':>14} | {'price':>12} | "
            f"{'your own %':>10} | {'spot value':>14} | {'redeem value':>14}")
     a(hdr)
@@ -134,8 +139,8 @@ def render(result: SimResult) -> str:
           f"{fmt_pct(s.ownership_pct):>10} | {fmt_num(s.spot_value):>14} | "
           f"{fmt_num(s.redeem_value):>14}")
     a("")
-    a("  spot value  = tokens x current price (mark-to-market, ignores sell slippage)")
-    a("  redeem value= USDT you actually get selling those tokens back into the curve")
+    a("  spot value  = units x current price (mark-to-market, ignores sell slippage)")
+    a("  redeem value= USDT you actually get selling those units back into the curve")
     a("")
 
     a(f"STEP 3  -  AGGREGATE P&L  (all {cfg.num_outcomes} outcomes; spend "
@@ -163,9 +168,8 @@ def render(result: SimResult) -> str:
           f"{fmt_num(s.settle_payout):>16} | {fmt_x(s.settle_roi):>10}")
     a("")
     a("=" * 96)
-    a("NOTE: curve constants are PLACEHOLDERS unless you pasted 42's real on-chain")
-    a("values into mmn/cli.py (DEFAULTS) or passed them as flags. The MATH is exact;")
-    a("only the constants need to be the real ones for the numbers to be 42-accurate.")
+    a("Curve & fee are 42's confirmed production values. ROI and ownership are exact and")
+    a("scale-free; only the absolute USDT amounts depend on --full-mcap (the $ scale).")
     a("=" * 96)
     return "\n".join(lines)
 
@@ -176,13 +180,7 @@ def render(result: SimResult) -> str:
 def _build_curve(args):
     if args.curve == "affine":
         return AffineCurve(slope=args.slope, base=args.base)
-    if args.coefficient is not None:
-        return PowerCurve(coefficient=args.coefficient, exponent=args.exponent)
-    return PowerCurve.from_full_mcap(
-        total_supply=args.total_supply,
-        mcap_at_full=args.mcap_at_full,
-        exponent=args.exponent,
-    )
+    return PowerCurve(coefficient=args.coefficient, exponent=args.exponent)
 
 
 def _prompt(prompt_text, default, cast):
@@ -208,11 +206,15 @@ def parse_args(argv):
                    help="x: percent of each outcome's supply bought as an early buyer")
     p.add_argument("--curve", choices=["power", "affine"], default=DEFAULTS["curve"])
     p.add_argument("--exponent", type=float, default=DEFAULTS["exponent"])
-    p.add_argument("--total-supply", type=float, default=DEFAULTS["total_supply"])
-    p.add_argument("--mcap-at-full", type=float, default=DEFAULTS["mcap_at_full"])
     p.add_argument("--coefficient", type=float, default=DEFAULTS["coefficient"])
     p.add_argument("--slope", type=float, default=DEFAULTS["slope"])
     p.add_argument("--base", type=float, default=DEFAULTS["base"])
+    p.add_argument("--full-mcap", type=float, default=DEFAULTS["full_mcap"],
+                   help="reference market cap (USDT) per outcome; sets the $ scale")
+    p.add_argument("--total-supply", type=float, default=DEFAULTS["total_supply"],
+                   help="reference supply per outcome (overrides --full-mcap)")
+    p.add_argument("--house-seed", type=float, default=DEFAULTS["house_seed"],
+                   help="USDT the house seeds each outcome with")
     p.add_argument("--buy-fee", type=float, default=DEFAULTS["buy_fee"])
     p.add_argument("--sell-fee", type=float, default=DEFAULTS["sell_fee"])
     p.add_argument("--quote", default=DEFAULTS["quote"])
@@ -231,18 +233,10 @@ def main(argv=None) -> int:
         print("42 / Event Rush early-buyer simulator - press Enter to accept defaults.\n")
         args.outcomes = _prompt("Number of outcomes in the market", 4, int)
         args.early_pct = _prompt("Early buy: % of each outcome's supply", 1.0, float)
-        args.curve = _prompt("Curve type (power/affine)", args.curve, str)
-        if args.curve == "power":
-            args.exponent = _prompt("  power-curve exponent n", args.exponent, float)
-            args.total_supply = _prompt("  total supply per outcome",
-                                        args.total_supply, float)
-            args.mcap_at_full = _prompt("  market cap (USDT) at full supply",
-                                        args.mcap_at_full, float)
-        else:
-            args.slope = _prompt("  affine slope m", args.slope, float)
-            args.base = _prompt("  affine base b", args.base, float)
-        args.buy_fee = _prompt("Buy fee fraction (0.005 = 0.5%)", args.buy_fee, float)
-        args.sell_fee = _prompt("Sell fee fraction", args.sell_fee, float)
+        args.full_mcap = _prompt("Reference market cap per outcome (USDT)",
+                                 args.full_mcap, float)
+        args.house_seed = _prompt("House seed per outcome (USDT, 0 = none)",
+                                  args.house_seed, float)
         mraw = input(f"Market-cap multiples "
                      f"[{' '.join(str(m) for m in DEFAULT_MULTIPLES)}]: ").strip()
         args.multiples = mraw if mraw else None
@@ -252,16 +246,21 @@ def main(argv=None) -> int:
     if args.early_pct is None:
         args.early_pct = 1.0
 
+    curve = _build_curve(args)
+    total_supply = (args.total_supply if args.total_supply
+                    else curve.supply_for_reserve(args.full_mcap))
+
     multiples = (_parse_multiples(args.multiples)
                  if args.multiples else DEFAULT_MULTIPLES)
 
     config = SimConfig(
         num_outcomes=args.outcomes,
         early_pct=args.early_pct,
-        curve=_build_curve(args),
-        total_supply=args.total_supply,
+        curve=curve,
+        total_supply=total_supply,
         buy_fee=args.buy_fee,
         sell_fee=args.sell_fee,
+        house_seed_mcap=args.house_seed,
         multiples=multiples,
         quote=args.quote,
     )

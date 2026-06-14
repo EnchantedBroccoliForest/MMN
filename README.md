@@ -36,57 +36,59 @@ Sourced from 42's docs and Event Rush coverage (links at the bottom):
   pooled and paid out **pro-rata to holders of the winning token**. Your payout
   on a win = `your share of the winning token × total USDT pot`.
 
-### Confirmed from 42's on-chain interfaces
+### Confirmed from 42 (contracts + MC_Sim)
 
-The mechanism above is corroborated by 42's contract interfaces (`IFTMarketV2`,
-`IFTCurve`):
+Corroborated by 42's contract interfaces (`IFTMarketV2`, `IFTCurve`) **and the
+exact formulas in `EnchantedBroccoliForest/MC_Sim`** (`parimutuel_sim/market.py`):
 
-- **Collateral = USDT** (BEP-20, 18 decimals).
-- **One market holds every outcome as an ERC-6909 token id** (`tokenId` = outcome).
-- **Buy** = `mintCollateralToExactOt`, **Sell** = `redeemExactOtToCollateral`.
-- The curve is a **Hanson Market-Scoring-Rule AMM**: a cost function `C(supply)`
-  with marginal price `C'(supply)` (the docs/interface cite Robin Hanson's MSR /
-  LMSR). A **fee is skimmed to a treasury** on each trade.
-- **Settlement** is **parimutuel** (`claim()` / `simPayout`): winning-token
-  holders split the USDT pot pro-rata.
+- **Collateral = USDT** (BEP-20, 18 decimals); one market holds every outcome as
+  an **ERC-6909 token id**.
+- **Production curve (exact):** marginal price `p(x) = x^(3/4) / 2,000,000`.
+- **Market cap = cumulative USDT staked** in an outcome
+  `= (4/7)·x^(7/4) / 2,000,000` (equal to the bonding-curve reserve — **not**
+  price×supply).
+- **Buy** = `mintCollateralToExactOt`, **Sell** = `redeemExactOtToCollateral`;
+  **fee = 0.2% per side** to treasury.
+- **Settlement = parimutuel:** `payout_per_unit = total_pool / winning_supply`,
+  so winning-token holders split the whole USDT pot pro-rata.
+- Each outcome may carry a small **house seed** of initial market cap.
 
-What is **not** publicly available is the exact curve **constants** (liquidity
-parameter, fee bps, supply caps). The simulator therefore uses a configurable
-power-curve stand-in; the math machinery is exact, only the constants need to be
-the real ones.
+The curve and fee are therefore 42's **real production values**, not placeholders.
+The only free parameter is the **dollar scale** (`--full-mcap`, a reference market
+cap per outcome); ROI and ownership are independent of it.
 
 ### The model
 
-Per-outcome bonding curve, instantaneous price at circulating supply `s`:
+42's per-outcome production curve, marginal price at supply `x`:
 
 ```
-power curve:   p(s) = k · s^n          (n = exponent, k = coefficient)
-affine curve:  p(s) = m · s + b        (alternative shape)
+p(x) = x^(3/4) / 2,000,000          (a power curve: k = 1/2,000,000, n = 3/4)
 ```
 
-Everything else is derived from the integral of the price:
+Derived quantities (with `n = 3/4`, so `n+1 = 7/4`):
 
-| Quantity            | Power curve                         |
-|---------------------|-------------------------------------|
-| reserve (locked USDT) `R(s)` | `k/(n+1) · s^(n+1)`        |
-| spot market cap `M(s)`       | `p(s)·s = k·s^(n+1) = (n+1)·R(s)` |
-| cost to mint `a → b`         | `R(b) − R(a)`              |
-| redeem proceeds `b → a`      | `R(b) − R(a)`              |
+| Quantity            | Formula                                   |
+|---------------------|-------------------------------------------|
+| **market cap** = cumulative USDT staked `M(x)` | `(4/7)·x^(7/4) / 2,000,000` |
+| cost to mint `a → b`         | `M(b) − M(a)`                    |
+| redeem proceeds `b → a`      | `M(b) − M(a)`                    |
+| mint units for `$D` from `x` | `(x^(7/4) + (7/4)·2,000,000·D)^(4/7) − x` |
 
-**Step 1–2 (spend).** Buying the first **x%** of supply means buying tokens
-`q = x% · total_supply`. Spend per outcome = `R(0 → q)`; total spend =
-`N · R(0 → q)` (× `1 + buy_fee`).
+(`market cap = reserve` here — this is the parimutuel pot contribution, not
+price×supply.)
 
-**Step 3 (growth).** Stages are **market-cap multiples** of your entry market
-cap `M(q)`. At multiple `M`, supply rises to `s = q · M^(1/(n+1))`, so for a
-power curve:
+**Step 1–2 (spend).** Buying the first **x%** of supply means `q = x% · S` units
+(`S` set by `--full-mcap`). Spend per outcome = `M(0 → q)` × `(1 + 0.2%)`; total
+spend = `N ×` that.
 
-- **% ownership** = `q / s = M^(−1/(n+1))` — your stake dilutes as others buy.
-- **spot value** (mark-to-market) = `q · p(s) = M(q) · M^(n/(n+1))`.
-- **redeem value** (realisable) = USDT from selling your `q` tokens back into
-  the curve = `R(s) − R(s−q)`. This is what you could actually cash out.
-- **settlement payout** (if it resolves here and your outcome wins) =
-  `ownership × total_pot`, where `total_pot = N · R(s)`.
+**Step 3 (growth).** Stages are **market-cap multiples** of your entry market cap.
+At multiple `M` the supply rises to `s = q · M^(4/7)`, giving these **scale-free**
+results (true for any `--full-mcap`):
+
+- **% ownership** = `q / s = M^(−4/7)` — your stake dilutes as others stake.
+- **redeem value** (sell back into the curve) = `M(s) − M(s−q)`, times `1 − 0.2%`.
+- **settlement (win) payout** = `ownership × total_pot` with `total_pot = N · M(s)`;
+  payout / spend = **`M^(3/7)`**.
 
 ---
 
@@ -95,16 +97,15 @@ power curve:
 No third-party dependencies are required to run it (Python 3.9+).
 
 ```bash
-# Interactive — prompts for outcomes, x%, curve params, multiples
+# Interactive — prompts for outcomes, x%, reference market cap, multiples
 python -m mmn
 
-# Non-interactive
+# Non-interactive (defaults to 42's confirmed curve + 0.2% fee)
 python -m mmn --outcomes 4 --early-pct 1 --yes
 
-# Override the curve / fees / growth stages
+# Tune the scenario
 python -m mmn --outcomes 3 --early-pct 0.5 \
-    --curve power --exponent 1 --total-supply 1e9 --mcap-at-full 100000 \
-    --buy-fee 0.005 --sell-fee 0.005 \
+    --full-mcap 250000 --house-seed 5 \
     --multiples "1 2 5 10 50 100 1000" --yes
 ```
 
@@ -117,21 +118,19 @@ python -m pytest -q
 
 ---
 
-## ⚠️ Plug in 42's real constants
+## Calibration
 
-The curve constants in `mmn/cli.py` (`DEFAULTS`) are **placeholders** chosen to
-produce readable round numbers — they are **not** 42's on-chain values. The
-**math is exact**; only the constants need to be real for the output to be
-42-accurate. Replace them with the verified contract's parameters:
+The curve (`p(x) = x^(3/4)/2,000,000`) and fee (0.2%/side) in `mmn/cli.py`
+(`DEFAULTS`) are 42's **confirmed production values**, verified against
+`EnchantedBroccoliForest/MC_Sim` (`parimutuel_sim/market.py`) — the test suite
+asserts an exact match to its `price` / `mcap` / `mint_units` / `supply_for_mcap`.
 
-- `exponent` (n) and `coefficient` (k) — or `total_supply` + `mcap_at_full`
-- `buy_fee`, `sell_fee` (spread)
-- pick `--curve affine` (slope `m`, base `b`) if 42's curve is linear-with-base
+The only thing you set is the **dollar scale**:
 
-> The verified 42 contracts live on BscScan (collateral = USDT
-> `0x55d3...7955`). I was unable to fetch them from this sandbox (network egress
-> is blocked), so paste the contract's `buy`/`sell` pricing function + constants
-> and the defaults can be set exactly.
+- `--full-mcap` — a reference market cap per outcome (defaults to 100,000 USDT)
+- `--house-seed` — optional initial market cap the house seeds each outcome with
+
+ROI and ownership are **scale-free**, so they're exact regardless of `--full-mcap`.
 
 ---
 
@@ -144,8 +143,8 @@ mmn/
   cli.py         # interactive + flag-driven front-end and report rendering
   __main__.py    # `python -m mmn`
 tests/
-  test_curves.py     # closed-form vs numerical integration + identities
-  test_simulator.py  # economic identities (ownership law, settlement, fees)
+  test_curves.py     # closed-form vs integration + EXACT match to MC_Sim formulas
+  test_simulator.py  # economic identities (ownership=M^-4/7, win=M^3/7, fees, scale-free)
 ```
 
 ## Sources
@@ -155,3 +154,4 @@ tests/
 - [Binance Wallet Event Rush turns on-chain events into tradable markets — crypto.news](https://crypto.news/binance-wallet-event-rush-turns-on-chain-events-into-tradable-markets/)
 - [Binance Wallet Launches Event Rush — DailyCoin](https://dailycoin.com/binance-wallet-event-rush-trade-real-world-events)
 - [42 V2 Launches on BNB Chain introducing Eventcoins — BlockchainReporter](https://blockchainreporter.net/42-v2-launches-on-bnb-chain-introducing-eventcoins-as-a-new-tradable-asset-class)
+- `EnchantedBroccoliForest/MC_Sim` — `parimutuel_sim/market.py` (exact curve & settlement)

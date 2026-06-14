@@ -26,6 +26,15 @@ import math
 from abc import ABC, abstractmethod
 
 
+# 42.space / Event Rush production curve, verified against MC_Sim/parimutuel_sim
+# (market.py):
+#     marginal price   p(x) = x^(3/4) / 2_000_000
+#     market cap       mcap(x) = (4/7) * x^(7/4) / 2_000_000   (== reserve(x))
+# i.e. a PowerCurve with coefficient k = 1/2_000_000 and exponent n = 3/4.
+FT_PRICE_SCALE = 2_000_000.0
+FT_ALPHA = 0.75
+
+
 class BondingCurve(ABC):
     """Abstract single-outcome bonding curve."""
 
@@ -84,6 +93,17 @@ class PowerCurve(BondingCurve):
         self.n = float(exponent)
 
     @classmethod
+    def ft(cls) -> "PowerCurve":
+        """The exact 42.space production curve: p(x) = x^(3/4) / 2_000_000.
+
+        Verified against MC_Sim's market.py: reserve(x) here equals 42's
+        mcap(x) = (4/7) * x^(7/4) / 2_000_000, and tokens_for_spend / cost /
+        supply_for_reserve reproduce its mint_units / cost_to_mint /
+        supply_for_mcap exactly.
+        """
+        return cls(coefficient=1.0 / FT_PRICE_SCALE, exponent=FT_ALPHA)
+
+    @classmethod
     def from_full_mcap(
         cls, total_supply: float, mcap_at_full: float, exponent: float = 1.0
     ) -> "PowerCurve":
@@ -99,9 +119,13 @@ class PowerCurve(BondingCurve):
         return cls(coefficient=k, exponent=exponent)
 
     def price(self, s: float) -> float:
+        if s <= 0:  # guard tiny negative supply from float error -> avoids complex
+            return 0.0
         return self.k * s ** self.n
 
     def reserve(self, s: float) -> float:
+        if s <= 0:
+            return 0.0
         return self.k / (self.n + 1) * s ** (self.n + 1)
 
     def supply_for_market_cap(self, mcap: float) -> float:
@@ -133,9 +157,13 @@ class AffineCurve(BondingCurve):
         self.b = float(base)
 
     def price(self, s: float) -> float:
+        if s <= 0:
+            return self.b
         return self.m * s + self.b
 
     def reserve(self, s: float) -> float:
+        if s <= 0:
+            return 0.0
         return self.m / 2.0 * s * s + self.b * s
 
     def supply_for_market_cap(self, mcap: float) -> float:
