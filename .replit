@@ -36,4 +36,4 @@ externalPort = 80
 
 [deployment]
 deploymentTarget = "autoscale"
-run = ["uv", "run", "uvicorn", "app:app", "--host", "0.0.0.0", "--port", "3000", "--loop", "uvloop", "--workers", "2"]
+run = ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "3000", "--loop", "uvloop", "--workers", "2"]
