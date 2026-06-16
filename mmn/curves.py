@@ -1,10 +1,9 @@
 """Bonding-curve math for a single outcome token.
 
-All curves expose the same interface so the simulator does not care which
-concrete shape 42 uses on-chain. Two families are provided:
+All curves expose the same interface so the simulator does not care about the
+concrete shape. 42's production curve is the power curve:
 
-    PowerCurve   p(s) = k * s ** n          (the docs call it a "power curve")
-    AffineCurve  p(s) = m * s + b           (linear with a base price)
+    PowerCurve   p(s) = k * s ** n          (42's on-chain "power curve")
 
 `s` is the circulating supply of one outcome token (in whole tokens) and prices
 are denominated in the collateral currency (USDT for Event Rush).
@@ -23,17 +22,29 @@ is why selling the whole supply back into the curve is always solvent. 42's
 
 from __future__ import annotations
 
-import math
 from abc import ABC, abstractmethod
 
-
-# 42.space / Event Rush production curve, verified against MC_Sim/parimutuel_sim
-# (market.py):
-#     marginal price   p(x) = x^(3/4) / 2_000_000
-#     market cap       mcap(x) = (4/7) * x^(7/4) / 2_000_000   (== reserve(x))
-# i.e. a PowerCurve with coefficient k = 1/2_000_000 and exponent n = 3/4.
-FT_PRICE_SCALE = 2_000_000.0
-FT_ALPHA = 0.75
+# 42.space / Event Rush production power curve, VERIFIED against the on-chain
+# contracts (ft-contracts: src/curves/config/PowerCurve.sol PowerCurveSet1 and
+# src/curves/math/PowerMath.sol). The contract math (per outcome token) is:
+#     cost / market cap   mcap(x) = (x + start)^(c1+1) / c2          [== reserve(x)]
+#     marginal price      p(x)    = (c1+1) * (x + start)^c1 / c2
+# with PowerCurveSet1: c1 = 0.75 (the exponent), c2 = 2_000_000 (FT_PRICE_SCALE),
+# start = 8.888... tokens.
+#
+# So both the exponent (3/4) AND the 2,000,000 scale are REAL on-chain parameters,
+# not invented. Note: c2 scales the COST integral (not the marginal price), so the
+# price carries the (c1+1) = 7/4 factor -- PowerCurve.ft() encodes this by using
+# k = (n+1)/FT_PRICE_SCALE (see ft()). Caveats this module does NOT model:
+#   * the +start (8.888) offset -- negligible above ~thousands of tokens, divergent
+#     near zero supply;
+#   * the exponent is per-curve-SET (Set1/Set4 = 0.75, Set2 = 2/3, Set3 = 0.8);
+#   * the opening-window LDA premium (first ~20s) and the dynamic redemption tax
+#     (handled approximately in fees / the simulator, see RedeemMathV2).
+# ROI and ownership *multiples* depend only on the exponent and are exact; absolute
+# USDT now matches the contract (above ~start supply).
+FT_PRICE_SCALE = 2_000_000.0  # PowerCurveSet1.C2 (config/PowerCurve.sol:54)
+FT_ALPHA = 0.75  # PowerCurveSet1.C1 (config/PowerCurve.sol:53)
 
 
 class BondingCurve(ABC):
@@ -104,20 +115,22 @@ class PowerCurve(BondingCurve):
         self.n = float(exponent)
 
     @classmethod
-    def ft(cls) -> "PowerCurve":
-        """The exact 42.space production curve: p(x) = x^(3/4) / 2_000_000.
+    def ft(cls) -> PowerCurve:
+        """42.space production power curve, matched to the on-chain contract.
 
-        Verified against MC_Sim's market.py: reserve(x) here equals 42's
-        mcap(x) = (4/7) * x^(7/4) / 2_000_000, and tokens_for_spend / cost /
-        supply_for_reserve reproduce its mint_units / cost_to_mint /
-        supply_for_mcap exactly.
+        Contract (PowerCurveSet1, PowerMath.sol): market cap = reserve(x) =
+        x^(n+1)/c2 and marginal price = (n+1)*x^n/c2, with n = 0.75 and
+        c2 = FT_PRICE_SCALE = 2,000,000. In this class price(s) = k*s^n and
+        reserve(s) = k/(n+1)*s^(n+1), so we set ``k = (n+1)/c2`` to reproduce both:
+        price = (n+1)/c2 * s^n and reserve = s^(n+1)/c2 -- EXACTLY the contract
+        (ignoring the +start=8.888 offset, negligible above ~thousands of tokens).
         """
-        return cls(coefficient=1.0 / FT_PRICE_SCALE, exponent=FT_ALPHA)
+        return cls(coefficient=(1.0 + FT_ALPHA) / FT_PRICE_SCALE, exponent=FT_ALPHA)
 
     @classmethod
     def from_full_mcap(
         cls, total_supply: float, mcap_at_full: float, exponent: float = 1.0
-    ) -> "PowerCurve":
+    ) -> PowerCurve:
         """Build a curve by pinning the spot market cap at the full supply.
 
         Lets you parameterise with intuitive numbers (total supply + the market
@@ -132,7 +145,7 @@ class PowerCurve(BondingCurve):
     def price(self, s: float) -> float:
         if s <= 0:  # guard tiny negative supply from float error -> avoids complex
             return 0.0
-        return self.k * s ** self.n
+        return self.k * s**self.n
 
     def reserve(self, s: float) -> float:
         if s <= 0:
@@ -141,55 +154,15 @@ class PowerCurve(BondingCurve):
 
     def supply_for_spot_market_cap(self, mcap: float) -> float:
         # spot mcap = k * s ** (n + 1)
+        if mcap <= 0:  # guard: negative -> complex result, violating -> float
+            return 0.0
         return (mcap / self.k) ** (1.0 / (self.n + 1))
 
     def supply_for_reserve(self, reserve: float) -> float:
         # reserve = k / (n + 1) * s ** (n + 1)
+        if reserve <= 0:  # guard: negative -> complex result, violating -> float
+            return 0.0
         return ((self.n + 1) * reserve / self.k) ** (1.0 / (self.n + 1))
 
     def __repr__(self) -> str:  # pragma: no cover - cosmetic
         return f"PowerCurve(k={self.k:.6g}, n={self.n:g})"
-
-
-class AffineCurve(BondingCurve):
-    """p(s) = m * s + b  (slope m >= 0, base price b >= 0).
-
-    Closed forms:
-        reserve(s)         = m/2 * s ** 2 + b * s   <- 42's market cap
-        spot_market_cap(s) = m * s ** 2 + b * s
-    """
-
-    def __init__(self, slope: float, base: float = 0.0):
-        if slope < 0 or base < 0:
-            raise ValueError("slope (m) and base (b) must be >= 0")
-        if slope == 0 and base == 0:
-            raise ValueError("slope and base cannot both be zero")
-        self.m = float(slope)
-        self.b = float(base)
-
-    def price(self, s: float) -> float:
-        if s <= 0:
-            return self.b
-        return self.m * s + self.b
-
-    def reserve(self, s: float) -> float:
-        if s <= 0:
-            return 0.0
-        return self.m / 2.0 * s * s + self.b * s
-
-    def supply_for_spot_market_cap(self, mcap: float) -> float:
-        # spot mcap: m s^2 + b s - mcap = 0
-        if self.m == 0:
-            return mcap / self.b
-        disc = self.b * self.b + 4 * self.m * mcap
-        return (-self.b + math.sqrt(disc)) / (2 * self.m)
-
-    def supply_for_reserve(self, reserve: float) -> float:
-        # m/2 s^2 + b s - reserve = 0
-        if self.m == 0:
-            return reserve / self.b
-        disc = self.b * self.b + 2 * self.m * reserve
-        return (-self.b + math.sqrt(disc)) / self.m
-
-    def __repr__(self) -> str:  # pragma: no cover - cosmetic
-        return f"AffineCurve(m={self.m:.6g}, b={self.b:.6g})"

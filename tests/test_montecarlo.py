@@ -11,8 +11,7 @@ from mmn.simulator import SimConfig, simulate
 
 
 def mc(**kw):
-    base = dict(num_outcomes=4, early_pct=1.0, n_trials=3000, seed=7,
-                mean_added_pool=400_000.0)
+    base = dict(num_outcomes=4, early_pct=1.0, n_trials=3000, seed=7, mean_added_pool=400_000.0)
     base.update(kw)
     return McConfig(**base)
 
@@ -50,9 +49,15 @@ def test_prior_length_validation():
 
 
 def test_charts_emit_svg():
-    result = simulate(SimConfig(num_outcomes=4, early_pct=1.0,
-                                curve=PowerCurve.ft(), total_supply=1e6,
-                                multiples=(1, 2, 10, 100)))
+    result = simulate(
+        SimConfig(
+            num_outcomes=4,
+            early_pct=1.0,
+            curve=PowerCurve.ft(),
+            total_supply=1e6,
+            multiples=(1, 2, 10, 100),
+        )
+    )
     svg = ownership_and_roi_svg(result)
     assert svg.startswith("<svg") and svg.rstrip().endswith("</svg>")
     assert "ownership" in svg

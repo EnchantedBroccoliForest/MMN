@@ -32,8 +32,8 @@ from __future__ import annotations
 
 import math
 import random
+from collections.abc import Sequence
 from dataclasses import dataclass, field
-from typing import List, Optional, Sequence
 
 from .curves import BondingCurve, PowerCurve
 
@@ -44,14 +44,18 @@ class McConfig:
     early_pct: float
     curve: BondingCurve = field(default_factory=PowerCurve.ft)
     total_supply: float = 1_000_000.0
-    buy_fee: float = 0.002
-    sell_fee: float = 0.002
-    seed_min: float = 0.10            # house seed range (USDT market cap) - MC_Sim default
+    buy_fee: float = 0.008  # 42's 0.8% one-way protocol fee
+    sell_fee: float = 0.008  # 0.8% out -> 1.6% round-trip
+    # dynamic redemption tax (RedeemMathV2): sampled per trial across the PRE-KINK
+    # range, since the exact rate depends on size/time. Uniform(redeem_tax_min, max).
+    redeem_tax_min: float = 0.001  # 0.1%
+    redeem_tax_max: float = 0.05  # 5%
+    seed_min: float = 0.10  # house seed range (USDT market cap) - MC_Sim default
     seed_max: float = 10.0
-    prior: Optional[Sequence[float]] = None   # winner probs (len N); None -> uniform
-    mean_added_pool: float = 100_000.0        # expected total later capital across all outcomes
-    pool_sigma: float = 0.6                   # lognormal sigma of the added pool
-    concentration: float = 8.0                # Dirichlet sharpness (higher -> closer to prior)
+    prior: Sequence[float] | None = None  # winner probs (len N); None -> uniform
+    mean_added_pool: float = 100_000.0  # expected total later capital across all outcomes
+    pool_sigma: float = 0.6  # lognormal sigma of the added pool
+    concentration: float = 8.0  # Dirichlet sharpness (higher -> closer to prior)
     n_trials: int = 20_000
     seed: int = 0
     quote: str = "USDT"
@@ -63,6 +67,8 @@ class McConfig:
             raise ValueError("early_pct must be in (0, 100]")
         if self.seed_min < 0 or self.seed_max < self.seed_min:
             raise ValueError("require 0 <= seed_min <= seed_max")
+        if not (0 <= self.redeem_tax_min <= self.redeem_tax_max < 1):
+            raise ValueError("require 0 <= redeem_tax_min <= redeem_tax_max < 1")
         if self.mean_added_pool <= 0:
             raise ValueError("mean_added_pool must be > 0")
         if self.n_trials < 1:
@@ -73,7 +79,7 @@ class McConfig:
             if any(p < 0 for p in self.prior) or sum(self.prior) <= 0:
                 raise ValueError("prior must be non-negative and sum to > 0")
 
-    def normalized_prior(self) -> List[float]:
+    def normalized_prior(self) -> list[float]:
         if self.prior is None:
             return [1.0 / self.num_outcomes] * self.num_outcomes
         total = float(sum(self.prior))
@@ -83,10 +89,10 @@ class McConfig:
 @dataclass
 class McResult:
     config: McConfig
-    settle_mult: List[float]    # settlement payout / total spend, per trial
-    redeem_mult: List[float]    # sell-everything-back / total spend, per trial
-    total_spend: float          # deterministic given seeds? no - mean across trials
-    prob_profit: float          # P(settlement payout > spend)
+    settle_mult: list[float]  # settlement payout / total spend, per trial
+    redeem_mult: list[float]  # sell-everything-back / total spend, per trial
+    total_spend: float  # deterministic given seeds? no - mean across trials
+    prob_profit: float  # P(settlement payout > spend)
     mean_settle: float
     median_settle: float
     p05_settle: float
@@ -94,7 +100,7 @@ class McResult:
     mean_redeem: float
 
 
-def _percentile(sorted_vals: List[float], pct: float) -> float:
+def _percentile(sorted_vals: list[float], pct: float) -> float:
     if not sorted_vals:
         return float("nan")
     k = (len(sorted_vals) - 1) * pct
@@ -105,7 +111,7 @@ def _percentile(sorted_vals: List[float], pct: float) -> float:
     return sorted_vals[lo] * (hi - k) + sorted_vals[hi] * (k - lo)
 
 
-def _dirichlet(alpha: List[float], rng: random.Random) -> List[float]:
+def _dirichlet(alpha: list[float], rng: random.Random) -> list[float]:
     gammas = [rng.gammavariate(a, 1.0) if a > 0 else 0.0 for a in alpha]
     total = sum(gammas)
     if total <= 0:
@@ -114,7 +120,7 @@ def _dirichlet(alpha: List[float], rng: random.Random) -> List[float]:
     return [g / total for g in gammas]
 
 
-def _categorical(prior: List[float], rng: random.Random) -> int:
+def _categorical(prior: list[float], rng: random.Random) -> int:
     r = rng.random()
     acc = 0.0
     for i, p in enumerate(prior):
@@ -136,8 +142,8 @@ def run_montecarlo(config: McConfig) -> McResult:
     sigma = config.pool_sigma
     mu = math.log(config.mean_added_pool) - 0.5 * sigma * sigma
 
-    settle_mult: List[float] = []
-    redeem_mult: List[float] = []
+    settle_mult: list[float] = []
+    redeem_mult: list[float] = []
     spend_accum = 0.0
     profit_count = 0
 
@@ -166,10 +172,15 @@ def run_montecarlo(config: McConfig) -> McResult:
             final_supplies.append(curve.supply_for_reserve(final_mcap))
 
         # Realisable value if the buyer sold everything back into the curves now.
+        # Redemption tax sampled across the pre-kink range; proceeds = gross *
+        # (1 - redeem_tax) * (1 - sell_fee), matching the contract.
+        redeem_tax = rng.uniform(config.redeem_tax_min, config.redeem_tax_max)
         redeem_value = 0.0
         for i in range(n):
             s = final_supplies[i]
-            redeem_value += curve.cost(max(s - q, 0.0), s) * (1.0 - config.sell_fee)
+            redeem_value += (
+                curve.cost(max(s - q, 0.0), s) * (1.0 - redeem_tax) * (1.0 - config.sell_fee)
+            )
         redeem_mult.append(redeem_value / total_spend)
 
         # Settlement: one winner; buyer holds q of it.

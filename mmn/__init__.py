@@ -1,4 +1,4 @@
-"""Profitability simulator for early buyers on 42.space-style bonding-curve markets.
+"""Offline profitability sandbox for 42.space-style bonding-curve markets.
 
 42 / Event Rush mechanism (BNB Chain, collateral = USDT):
 
@@ -12,23 +12,22 @@
     the USDT collateral locked in every losing outcome is pooled and paid out
     pro-rata to holders of the winning token.
 
-This package models all of the above with closed-form bonding-curve math so the
-numbers are exact (cross-checked against numerical integration in the tests).
+This package models the above with closed-form bonding-curve math (cross-checked
+against numerical integration in the tests). Note: absolute USDT figures depend
+on an assumed curve scale and are estimates; ROI/ownership multiples are scale-free.
+
+The live-market analyzer is parked — see docs/live-analyzer.md.
 """
 
-from .curves import BondingCurve, PowerCurve, AffineCurve
-from .simulator import SimConfig, SimResult, StageRow, simulate
+from .chart import mc_histogram_svg, ownership_and_roi_svg
+from .curves import BondingCurve, PowerCurve
+from .fees import DOCUMENTED_PROTOCOL_FEE
 from .montecarlo import McConfig, McResult, run_montecarlo
-from .chart import ownership_and_roi_svg, mc_histogram_svg
-from .fees import FeeModel, DOCUMENTED_PROTOCOL_FEE
-from .ft_api import FtClient, FtApiError, Market, Outcome, market_from_json
-from .live_simulator import BuyerPlan, LiveResult, OutcomeAnalysis, analyze
-from .live_report import render_live, render_market_list
+from .simulator import SimConfig, SimResult, StageRow, simulate
 
 __all__ = [
     "BondingCurve",
     "PowerCurve",
-    "AffineCurve",
     "SimConfig",
     "SimResult",
     "StageRow",
@@ -38,17 +37,5 @@ __all__ = [
     "run_montecarlo",
     "ownership_and_roi_svg",
     "mc_histogram_svg",
-    "FeeModel",
     "DOCUMENTED_PROTOCOL_FEE",
-    "FtClient",
-    "FtApiError",
-    "Market",
-    "Outcome",
-    "market_from_json",
-    "BuyerPlan",
-    "LiveResult",
-    "OutcomeAnalysis",
-    "analyze",
-    "render_live",
-    "render_market_list",
 ]

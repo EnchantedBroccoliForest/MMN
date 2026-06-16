@@ -3,285 +3,183 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>42 / Event Rush — Early-Buyer Simulator</title>
+  <title>42 / Event Rush — Buyer Toolkit</title>
+  <meta name="description" content="Offline profitability sandbox for 42 / Event Rush parimutuel bonding-curve markets." />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
-  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}" />
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}?v={{ css_v }}" />
 </head>
 <body>
-  <div class="app">
-    <!-- ============ SIDEBAR / CONTROLS ============ -->
-    <aside class="sidebar">
+  <div class="toasts" id="toasts" role="alert" aria-live="assertive"></div>
+  <div class="shell">
+    <!-- ============ TOP BAR ============ -->
+    <header class="topbar">
       <div class="brand">
         <div class="brand-mark">42</div>
-        <div class="brand-text">
-          <h1>Event Rush</h1>
-          <p>Early-Buyer Profitability Simulator</p>
+        <div>
+          <h1>42space/Event Rush — Buyer Toolkit</h1>
+          <p>Profitability Simulator</p>
         </div>
-      </div>
+      </div>    </header>
 
-      <form id="controls">
-        <section class="field-group">
-          <h2 class="group-title">Position</h2>
-
-          <label class="field">
-            <span class="field-label">
-              Number of outcomes
-              <i class="hint" title="How many possible outcomes the market has. You buy an early slice of every one.">?</i>
-            </span>
-            <div class="slider-row">
-              <input type="range" id="num_outcomes" min="2" max="20" step="1" value="4" />
-              <output id="num_outcomes_out">4</output>
-            </div>
-          </label>
-
-          <label class="field">
-            <span class="field-label">
-              Early buy (% of supply)
-              <i class="hint" title="What percent of each outcome's earliest, cheapest supply you mint.">?</i>
-            </span>
-            <div class="input-affix">
-              <input type="number" id="early_pct" min="0.01" max="100" step="0.1" value="1" />
-              <span class="affix">%</span>
-            </div>
-          </label>
-        </section>
-
-        <section class="field-group">
-          <h2 class="group-title">Scale</h2>
-
-          <label class="field">
-            <span class="field-label">
-              Reference market cap / outcome
-              <i class="hint" title="Sets the dollar scale. ROI and ownership are scale-free unless a house seed is set.">?</i>
-            </span>
-            <div class="input-affix">
-              <input type="number" id="full_mcap" min="1" step="1000" value="100000" />
-              <span class="affix" id="quote_affix1">USDT</span>
-            </div>
-          </label>
-
-          <label class="field">
-            <span class="field-label">
-              House seed / outcome
-              <i class="hint" title="USDT the house seeds each outcome with before you arrive. 0 = none.">?</i>
-            </span>
-            <div class="input-affix">
-              <input type="number" id="house_seed" min="0" step="1" value="0" />
-              <span class="affix" id="quote_affix2">USDT</span>
-            </div>
-          </label>
-        </section>
-
-        <section class="field-group collapsible" id="advanced">
-          <button type="button" class="group-toggle" id="advanced_toggle">
-            <h2 class="group-title">Advanced</h2>
-            <span class="chevron">▾</span>
-          </button>
-          <div class="collapsible-body">
-            <label class="field">
-              <span class="field-label">Curve</span>
-              <select id="curve">
-                <option value="power">Power — 42 production</option>
-                <option value="affine">Affine (linear)</option>
-              </select>
-            </label>
-
-            <div class="field-row" id="power_params">
-              <label class="field">
-                <span class="field-label">Coefficient (k)</span>
-                <input type="number" id="coefficient" step="any" value="0.0000005" />
-              </label>
-              <label class="field">
-                <span class="field-label">Exponent (n)</span>
-                <input type="number" id="exponent" step="0.05" value="0.75" />
-              </label>
+    <section id="view_offline">
+      <div class="grid">
+        <aside class="sidebar">
+          <form class="panel" id="controls" novalidate>
+            <h2 class="panel-title">Position</h2>
+            <div class="fieldset">
+              <div class="field">
+                <label class="field-label" for="num_outcomes">Number of outcomes
+                  <i class="hint" tabindex="0" data-tip="How many outcomes the market has. You buy the same early slice of every one.">?</i>
+                </label>
+                <input type="number" id="num_outcomes" min="2" max="100" step="1" value="4" />
+              </div>
+              <div class="field">
+                <label class="field-label" for="early_pct">Early buy (% of supply)
+                  <i class="hint" tabindex="0" data-tip="What percent of each outcome's earliest, cheapest supply you mint.">?</i>
+                </label>
+                <div class="input-affix"><input type="number" id="early_pct" min="0.01" max="100" step="0.1" value="1" /><span class="affix">%</span></div>
+              </div>
             </div>
 
-            <div class="field-row hidden" id="affine_params">
-              <label class="field">
-                <span class="field-label">Slope (m)</span>
-                <input type="number" id="slope" step="any" value="1e-13" />
-              </label>
-              <label class="field">
-                <span class="field-label">Base (b)</span>
-                <input type="number" id="base" step="any" value="0" />
-              </label>
+            <div class="fieldset">
+              <h2 class="panel-title" style="margin:0">Scale</h2>
+              <div class="field">
+                <label class="field-label" for="full_mcap">Target Inflow / outcome
+                  <i class="hint" tabindex="0" data-tip="Sets the $ scale. ROI and ownership multiples are scale-free unless a seed is set.">?</i>
+                </label>
+                <div class="input-affix"><input type="number" id="full_mcap" min="1" step="1000" value="100000" /><span class="affix">USDT</span></div>
+              </div>
+              <div class="field">
+                <label class="field-label" for="house_seed">Seed / outcome</label>
+                <div class="input-affix"><input type="number" id="house_seed" min="0" step="1" value="5" /><span class="affix">USDT</span></div>
+              </div>
             </div>
 
-            <div class="field-row">
-              <label class="field">
-                <span class="field-label">Buy fee</span>
-                <div class="input-affix">
-                  <input type="number" id="buy_fee" step="0.001" value="0.2" />
-                  <span class="affix">%</span>
+            <details class="collapsible fieldset">
+              <summary>Advanced <span class="chev">▾</span></summary>
+              <div class="fieldset" style="margin-top:0;border:0;padding:0">
+                <div class="field">
+                  <span class="field-label">Curve
+                  </span>
+                  <div class="curve-readout">PowerLDACurveV2</div>
                 </div>
-              </label>
-              <label class="field">
-                <span class="field-label">Sell fee</span>
-                <div class="input-affix">
-                  <input type="number" id="sell_fee" step="0.001" value="0.2" />
-                  <span class="affix">%</span>
+                <div class="row2" id="power_params">
+                  <div class="field"><label class="field-label" for="coefficient">Coefficient (k)</label><input type="number" id="coefficient" step="any" value="0.000000875" /></div>
+                  <div class="field"><label class="field-label" for="exponent">Exponent (n)</label><input type="number" id="exponent" step="0.05" value="0.75" /></div>
                 </div>
-              </label>
+                <div class="row2">
+                  <div class="field">
+                    <label class="field-label" for="fee">Trading fee
+                      <i class="hint" tabindex="0" data-tip="42's protocol and integrator fee, charged on each trade (one-way)">?</i>
+                    </label>
+                    <div class="input-affix"><input type="number" id="fee" step="0.1" value="0.8" /><span class="affix">%</span></div>
+                  </div>
+                  <div class="field">
+                    <label class="field-label" for="redeem_tax">Redeem Spread (pre-kink)
+                      <i class="hint" tabindex="0" data-tip="42's dynamic redemption tax on selling back into the curve. Pre-settlement it's ~0.1%-5%; it ramps to 90% near resolution (not modeled here). The chart shades the 0.1%-5% redeem-ROI range.">?</i>
+                    </label>
+                    <div class="input-affix"><input type="number" id="redeem_tax" step="0.1" value="5" /><span class="affix">%</span></div>
+                  </div>
+                </div>
+                <div class="field">
+                  <label class="field-label" for="multiples_input">Reserve multiples
+                    <i class="hint" tabindex="0" data-tip="The growth scenarios on the chart x-axis (each = the outcome's reserve reaching that × your entry). Type a number and press Enter to add a point; click ✕ to remove.">?</i>
+                  </label>
+                  <div class="chips" id="multiples_chips" role="group" aria-label="reserve multiples" aria-live="polite">
+                    <input type="text" id="multiples_input" class="chip-input" inputmode="decimal" placeholder="add multiple…" aria-label="add a reserve multiple" />
+                  </div>
+                </div>
+              </div>
+            </details>
+
+            <div style="margin-top:18px"><button type="submit" class="btn btn-primary" id="run_btn">Run simulation</button></div>
+            <div class="mode-badge" id="mode_badge" style="margin-top:13px"></div>
+          </form>
+        </aside>
+
+        <main class="content">
+          <div class="kpis stagger">
+            <div class="kpi">
+              <span class="kpi-label">Total Spent</span>
+              <div class="kpi-split">
+                <div class="kpi-side"><span class="kpi-side-label">total</span><span class="kpi-value" id="inv_total">—</span></div>
+                <div class="kpi-side"><span class="kpi-side-label">per outcome</span><span class="kpi-side-val" id="inv_each">—</span></div>
+              </div>
             </div>
-
-            <label class="field">
-              <span class="field-label">Market-cap multiples</span>
-              <input type="text" id="multiples" value="1 2 5 10 25 50 100 500 1000" />
-            </label>
+            <div class="kpi">
+              <span class="kpi-label">Token Holdings</span>
+              <div class="kpi-split">
+                <div class="kpi-side"><span class="kpi-side-label">total</span><span class="kpi-value" id="tok_total">—</span></div>
+                <div class="kpi-side"><span class="kpi-side-label">per outcome</span><span class="kpi-side-val" id="tok_each">—</span></div>
+              </div>
+            </div>
+            <div class="kpi">
+              <span class="kpi-label">Reserve (entry)<i class="hint" tabindex="0" data-tip="USDT accumulated. Typically lower than mcap.">?</i></span>
+              <div class="kpi-split">
+                <div class="kpi-side"><span class="kpi-side-label">total (pot)</span><span class="kpi-value" id="res_total">—</span></div>
+                <div class="kpi-side"><span class="kpi-side-label">per outcome</span><span class="kpi-side-val" id="res_each">—</span></div>
+              </div>
+            </div>
+            <div class="kpi">
+              <span class="kpi-label">Mcap (entry)<i class="hint" tabindex="0" data-tip="Market cap = price × supply.">?</i></span>
+              <div class="kpi-split">
+                <div class="kpi-side"><span class="kpi-side-label">total</span><span class="kpi-value" id="mc_total">—</span></div>
+                <div class="kpi-side"><span class="kpi-side-label">per outcome</span><span class="kpi-side-val" id="mc_each">—</span></div>
+              </div>
+            </div>
           </div>
-        </section>
 
-        <div class="actions">
-          <button type="submit" class="btn btn-primary" id="run_btn">Run simulation</button>
-        </div>
-      </form>
-
-      <div class="badge" id="mode_badge"></div>
-    </aside>
-
-    <!-- ============ MAIN / RESULTS ============ -->
-    <main class="content">
-      <div id="error_banner" class="error-banner hidden"></div>
-
-      <!-- Summary cards -->
-      <section class="summary" id="summary">
-        <div class="stat-card accent">
-          <span class="stat-label">Total spend</span>
-          <span class="stat-value" id="stat_total_spend">—</span>
-          <span class="stat-sub" id="stat_spend_each"></span>
-        </div>
-        <div class="stat-card">
-          <span class="stat-label">Entry price / token</span>
-          <span class="stat-value" id="stat_entry_price">—</span>
-          <span class="stat-sub">at your entry point</span>
-        </div>
-        <div class="stat-card">
-          <span class="stat-label">Tokens / outcome</span>
-          <span class="stat-value" id="stat_tokens">—</span>
-          <span class="stat-sub" id="stat_supply_sub"></span>
-        </div>
-        <div class="stat-card">
-          <span class="stat-label">Entry market cap</span>
-          <span class="stat-value" id="stat_entry_mcap">—</span>
-          <span class="stat-sub">cumulative staked / outcome</span>
-        </div>
-      </section>
-
-      <!-- Charts -->
-      <section class="panel">
-        <div class="panel-head">
-          <h3>Profitability as the market grows</h3>
-          <p>Aggregate return on your full position at each market-cap multiple of your entry.</p>
-        </div>
-        <div class="chart-wrap">
-          <canvas id="roiChart"></canvas>
-        </div>
-      </section>
-
-      <div class="panel-grid">
-        <section class="panel">
-          <div class="panel-head">
-            <h3>Your ownership dilutes</h3>
-            <p>Share of a single outcome's supply as more capital floods in.</p>
+          <div class="card">
+            <div class="card-head"><div><h3>Profitability</h3><p>Return on your full position at each reserve multiple of entry. The shaded redeem band spans the 0.1%–5% pre-kink redemption spread.</p></div></div>
+            <div class="card-body">
+              <div class="chart-wrap"><canvas id="roiChart"></canvas></div>
+              <div class="stage-detail-sep"><span>Stage detail</span></div>
+              <div class="table-wrap"><table class="data" id="detail_table">
+                <thead><tr><th>Reserve ×</th><th>Reserve</th><th>Mcap</th><th>Your %</th><th>Req inflow <i class="hint" tabindex="0" data-tip="Required inflow — (reserve − entry reserve) × outcomes. The 1× row is +0 as there is no additional inflow.">?</i></th><th>Redeem ROI</th><th>Settle ROI</th></tr></thead>
+                <tbody></tbody>
+              </table></div>
+            </div>
           </div>
-          <div class="chart-wrap small">
-            <canvas id="ownChart"></canvas>
-          </div>
-        </section>
 
-        <section class="panel">
-          <div class="panel-head">
-            <h3>Settlement payout (parimutuel)</h3>
-            <p>If a held outcome wins, holders split the whole pot pro-rata.</p>
+          <div class="grid" style="grid-template-columns:1fr 1fr;gap:18px">
+            <div class="card"><div class="card-head"><div><h3>Ownership</h3><p>Share of one outcome as capital floods in.</p></div></div><div class="card-body"><div class="chart-wrap sm"><canvas id="ownChart"></canvas></div></div></div>
+            <div class="card"><div class="card-head"><div><h3>Payout</h3><p>If a held outcome wins.</p></div></div><div class="card-body"><div class="chart-wrap sm"><canvas id="settleChart"></canvas></div></div></div>
           </div>
-          <div class="chart-wrap small">
-            <canvas id="settleChart"></canvas>
+
+          <div class="card">
+            <div class="card-head mc-head" style="align-items:center">
+              <div><h3>Monte Carlo</h3><p>Random seeds, uneven inflow, and a random winner across many trials.</p></div>
+              <div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap">
+                <div class="field" style="width:110px"><label class="field-label" for="mc_trials">Trials</label><input type="number" id="mc_trials" min="100" step="1000" value="20000" /></div>
+                <div class="field" style="width:130px"><label class="field-label" for="winner_prior">Winner prior</label><select id="winner_prior"><option value="uniform">Uniform</option><option value="skewed">Skewed</option></select></div>
+                <button type="button" class="btn btn-ghost" id="mc_btn" style="width:auto">Run Monte Carlo</button>
+              </div>
+            </div>
+            <div class="card-body">
+              <div id="mc_results" class="hidden">
+                <div class="kpis" style="margin-bottom:16px">
+                  <div class="kpi"><span class="kpi-label">P(profit)</span><span class="kpi-value" id="mc_prob">—</span></div>
+                  <div class="kpi"><span class="kpi-label">Median return</span><span class="kpi-value" id="mc_median">—</span></div>
+                  <div class="kpi"><span class="kpi-label">Mean return</span><span class="kpi-value" id="mc_mean">—</span></div>
+                  <div class="kpi"><span class="kpi-label">5th–95th pct</span><span class="kpi-value" id="mc_range">—</span></div>
+                </div>
+                <div class="chart-wrap"><canvas id="mcChart"></canvas></div>
+              </div>
+              <div class="placeholder" id="mc_placeholder">Run the Monte Carlo to see the distribution of outcomes.</div>
+            </div>
           </div>
-        </section>
+        </main>
       </div>
+    </section>
 
-      <!-- Detail table -->
-      <section class="panel">
-        <div class="panel-head">
-          <h3>Stage-by-stage detail</h3>
-          <p>Per single outcome held, plus aggregate P&amp;L and settlement across all outcomes.</p>
-        </div>
-        <div class="table-scroll">
-          <table id="detail_table">
-            <thead>
-              <tr>
-                <th>MCap ×</th>
-                <th>Market cap</th>
-                <th>Price</th>
-                <th>Your own %</th>
-                <th>Redeem ROI</th>
-                <th>Settle ROI</th>
-              </tr>
-            </thead>
-            <tbody></tbody>
-          </table>
-        </div>
-      </section>
-
-      <!-- Monte Carlo -->
-      <section class="panel">
-        <div class="panel-head mc-head">
-          <div>
-            <h3>Monte Carlo</h3>
-            <p>Random house seeds, uneven capital inflow, and a random winner across many trials.</p>
-          </div>
-          <div class="mc-controls">
-            <label class="field inline">
-              <span class="field-label">Trials</span>
-              <input type="number" id="mc_trials" min="100" step="1000" value="20000" />
-            </label>
-            <label class="field inline">
-              <span class="field-label">Winner prior</span>
-              <select id="winner_prior">
-                <option value="uniform">Uniform</option>
-                <option value="skewed">Skewed</option>
-              </select>
-            </label>
-            <button type="button" class="btn btn-ghost" id="mc_btn">Run Monte Carlo</button>
-          </div>
-        </div>
-
-        <div id="mc_results" class="hidden">
-          <div class="mc-stats">
-            <div class="mc-stat">
-              <span class="mc-stat-label">P(profit)</span>
-              <span class="mc-stat-value" id="mc_prob">—</span>
-            </div>
-            <div class="mc-stat">
-              <span class="mc-stat-label">Median return</span>
-              <span class="mc-stat-value" id="mc_median">—</span>
-            </div>
-            <div class="mc-stat">
-              <span class="mc-stat-label">Mean return</span>
-              <span class="mc-stat-value" id="mc_mean">—</span>
-            </div>
-            <div class="mc-stat">
-              <span class="mc-stat-label">5th–95th pct</span>
-              <span class="mc-stat-value" id="mc_range">—</span>
-            </div>
-          </div>
-          <div class="chart-wrap">
-            <canvas id="mcChart"></canvas>
-          </div>
-        </div>
-        <div id="mc_placeholder" class="placeholder">Run the Monte Carlo to see the distribution of outcomes.</div>
-      </section>
-
-      <footer class="foot">
-        Models 42.space / Event Rush bonding-curve markets. Outputs are estimates, not financial advice.
-      </footer>
-    </main>
+    <footer class="foot">
+      Models 42.space / Event Rush bonding-curve markets · curve scale &amp; fees are modeled estimates, exit values approximate
+    </footer>
   </div>
 
-  <script src="{{ url_for('static', filename='app.js') }}"></script>
+  <script src="{{ url_for('static', filename='app.js') }}?v={{ js_v }}"></script>
 </body>
 </html>

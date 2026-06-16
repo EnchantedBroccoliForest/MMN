@@ -1,21 +1,32 @@
 """Verify the simulation's economic identities on 42's exact curve."""
 
-import math
-
 import pytest
 
 from mmn.curves import PowerCurve
 from mmn.simulator import SimConfig, simulate
 
 
-def make(num_outcomes=4, early_pct=1.0, buy_fee=0.0, sell_fee=0.0,
-         total_supply=1_000_000.0, house_seed_mcap=0.0,
-         multiples=(1, 2, 10, 100), curve=None):
+def make(
+    num_outcomes=4,
+    early_pct=1.0,
+    buy_fee=0.0,
+    sell_fee=0.0,
+    redeem_tax=0.0,
+    total_supply=1_000_000.0,
+    house_seed_mcap=0.0,
+    multiples=(1, 2, 10, 100),
+    curve=None,
+):
     return SimConfig(
-        num_outcomes=num_outcomes, early_pct=early_pct,
+        num_outcomes=num_outcomes,
+        early_pct=early_pct,
         curve=curve or PowerCurve.ft(),
-        total_supply=total_supply, buy_fee=buy_fee, sell_fee=sell_fee,
-        house_seed_mcap=house_seed_mcap, multiples=multiples,
+        total_supply=total_supply,
+        buy_fee=buy_fee,
+        sell_fee=sell_fee,
+        redeem_tax=redeem_tax,
+        house_seed_mcap=house_seed_mcap,
+        multiples=multiples,
     )
 
 
@@ -30,12 +41,15 @@ def test_tokens_bought_is_pct_of_supply():
     assert r.tokens_per_outcome == pytest.approx(0.025 * 1e6)
 
 
-def test_entry_market_cap_equals_spend_no_fee_no_seed():
-    """42 market cap == cumulative staked, so entry mcap == fee-free spend."""
+def test_entry_reserve_equals_spend_no_fee_no_seed():
+    """Reserve == cumulative staked, so entry reserve == fee-free spend; and the
+    spot market cap = (n+1) * reserve."""
     r = simulate(make(multiples=(1,)))
-    assert r.entry_market_cap == pytest.approx(r.spend_per_outcome)  # buy_fee=0
+    assert r.entry_reserve == pytest.approx(r.spend_per_outcome)  # buy_fee=0
+    assert r.entry_market_cap == pytest.approx((1 + 0.75) * r.entry_reserve)  # price*supply
     s = r.stages[0]
     assert s.ownership_pct == pytest.approx(100.0)
+    assert s.reserve == pytest.approx(r.spend_per_outcome)
     assert s.redeem_value == pytest.approx(r.spend_per_outcome)
     assert s.redeem_roi == pytest.approx(0.0, abs=1e-12)
 

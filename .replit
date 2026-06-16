@@ -27,17 +27,13 @@ outputType = "webview"
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "python app.py"
-waitForPort = 5000
+args = "uv run python app.py"
+waitForPort = 3000
 
 [[ports]]
-localPort = 5000
+localPort = 3000
 externalPort = 80
-
-[[ports]]
-localPort = 5001
-externalPort = 3001
 
 [deployment]
 deploymentTarget = "autoscale"
-run = ["gunicorn", "--bind=0.0.0.0:5000", "--reuse-port", "app:app"]
+run = ["uv", "run", "uvicorn", "app:app", "--host", "0.0.0.0", "--port", "3000", "--loop", "uvloop", "--workers", "2"]
